@@ -1,0 +1,22 @@
+[
+  {"q": "how does prune of deleted files work?", "expected": ["repomind/database.py"]},
+  {"q": "where are relative imports resolved?", "expected": ["repomind/parser.py"]},
+  {"q": "how are functions extracted with qualified names?", "expected": ["repomind/parser.py"]},
+  {"q": "how is SHA hash used to skip unchanged files?", "expected": ["repomind/parser.py", "repomind/cli.py"]},
+  {"q": "what tables exist in SQLite storage?", "expected": ["repomind/database.py"]},
+  {"q": "how does upsert on file path work?", "expected": ["repomind/database.py"]},
+  {"q": "which embedding model converts code to vectors?", "expected": ["repomind/embedder.py"]},
+  {"q": "how are code chunks built for ChromaDB?", "expected": ["repomind/rag.py", "repomind/chunking.py"]},
+  {"q": "what are the 5 steps of ask RAG pipeline?", "expected": ["repomind/rag.py"]},
+  {"q": "how does Ollama client send prompts?", "expected": ["repomind/llm.py"]},
+  {"q": "how is dependency graph built from imports?", "expected": ["repomind/graph_builder.py"]},
+  {"q": "how is PageRank used for important files?", "expected": ["repomind/graph_builder.py"]},
+  {"q": "how are orphan files and cycles detected?", "expected": ["repomind/graph_builder.py"]},
+  {"q": "how are git hotspots and ghost files found?", "expected": ["repomind/git_analyzer.py"]},
+  {"q": "what sections are in the HTML report?", "expected": ["repomind/report.py"]},
+  {"q": "how are Python files found while skipping venv?", "expected": ["repomind/utils.py"]},
+  {"q": "which CLI commands exist for index and search?", "expected": ["repomind/cli.py"]},
+  {"q": "how are citations formatted with file and lines?", "expected": ["repomind/rag.py"]},
+  {"q": "how does chunk overlap handle long functions?", "expected": ["repomind/chunking.py"]},
+  {"q": "how are external vs internal imports distinguished?", "expected": ["repomind/graph_builder.py"]}
+]
