@@ -2,10 +2,11 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from backend.config import settings
 from backend.schemas import (
+    AddGitHubRepoRequest,
     AddLocalRepoRequest,
     BrowseFolderRequest,
     BrowseFolderResponse,
@@ -15,6 +16,7 @@ from backend.schemas import (
     RepoStats,
     SelectRepoRequest,
 )
+from backend.security import SecurityError
 from backend.services.folder_picker import pick_folder_native
 from backend.services.repo_manager import repo_manager
 
@@ -79,6 +81,34 @@ def add_local_repository(req: AddLocalRepoRequest) -> RepoInfo:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to register repository: {e}",
         ) from e
+
+
+@router.post("/github", response_model=RepoInfo, status_code=status.HTTP_201_CREATED)
+def add_github_repository(req: AddGitHubRepoRequest, response: Response) -> RepoInfo:
+    """Clone a public GitHub repository and register it (201 if new, 200 if already added)."""
+    try:
+        repo, created = repo_manager.add_github_repo(req.url)
+    except (SecurityError, ValueError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except TimeoutError as e:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(e)) from e
+    except Exception as e:
+        logger.error("GitHub repository ingestion failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add repository: {e}",
+        ) from e
+
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return RepoInfo(
+        id=repo.id,
+        name=repo.name,
+        path=str(repo.root_path),
+        is_sample=False,
+        is_indexed=repo.is_indexed(),
+        stats=RepoStats(**repo.get_stats()),
+    )
 
 
 @router.post("/browse", response_model=BrowseFolderResponse)

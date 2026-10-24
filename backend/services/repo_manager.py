@@ -5,12 +5,18 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
+import shutil
+import stat
+import subprocess
 import time
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
 from backend.config import settings
+from backend.security import validate_git_url
 from repomind.database import RepoDatabase
 from repomind.parser import extract_file, hash_bytes
 from repomind.utils import find_python_files
@@ -206,6 +212,88 @@ class RepoManager:
         logger.info("Successfully registered local repository '%s' (ID: %s) at %s", clean_name, repo_id, resolved)
         return repo
 
+    def add_github_repo(self, url: str) -> tuple[ManagedRepo, bool]:
+        """Shallow-clone a public Git repository and register it.
+
+        Returns ``(repo, created)``. If the same URL was added before, the
+        existing repo is re-selected and ``created`` is False.
+        """
+        clean_url = validate_git_url(url)
+        repo_path = urllib.parse.urlparse(clean_url).path.strip("/")
+        repo_path = re.sub(r"\.git$", "", repo_path)
+        owner, name = repo_path.split("/", 1)
+
+        normalized = f"{urllib.parse.urlparse(clean_url).hostname}/{repo_path}".lower()
+        url_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:8]
+        clean_slug = re.sub(r"[^a-zA-Z0-9_-]", "_", f"{owner}_{name}".lower())[:30].strip("_") or "repo"
+        repo_id = f"gh_{clean_slug}_{url_hash}"
+
+        if repo_id in self._registry:
+            self._active_repo_id = repo_id
+            return self._registry[repo_id], False
+
+        clone_dir = settings.data_dir / "clones" / repo_id
+        if clone_dir.exists():
+            _remove_tree(clone_dir)
+        clone_dir.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            self._git_clone(f"https://{normalized}.git", clone_dir)
+            py_count = len(find_python_files(clone_dir))
+            if py_count == 0:
+                raise ValueError(
+                    f"'{owner}/{name}' has no Python files. RepoMind currently understands Python code only."
+                )
+            if py_count > settings.max_repo_files:
+                raise ValueError(
+                    f"'{owner}/{name}' has {py_count} Python files; the limit is {settings.max_repo_files}."
+                )
+        except Exception:
+            _remove_tree(clone_dir)
+            raise
+
+        repo_data_dir = settings.data_dir / "repos" / repo_id
+        repo_data_dir.mkdir(parents=True, exist_ok=True)
+        repo = ManagedRepo(
+            id=repo_id,
+            name=f"{owner}/{name}",
+            root_path=clone_dir,
+            db_path=repo_data_dir / "repomind.db",
+            chroma_dir=repo_data_dir / ".repomind_chroma",
+            is_sample=False,
+        )
+        self._registry[repo_id] = repo
+        self._active_repo_id = repo_id
+        self._save_custom_repos()
+        logger.info("Cloned and registered '%s' (ID: %s)", repo.name, repo_id)
+        return repo, True
+
+    def _git_clone(self, url: str, dest: Path) -> None:
+        """Run a shallow, non-interactive ``git clone`` with a timeout."""
+        if shutil.which("git") is None:
+            raise RuntimeError("git is not installed on the server.")
+        env = {
+            **os.environ,
+            "GIT_TERMINAL_PROMPT": "0",  # never hang waiting for a username/password
+            "GIT_LFS_SKIP_SMUDGE": "1",  # don't download large LFS files
+        }
+        cmd = [
+            "git", "-c", "core.symlinks=false",  # symlinks become plain files, so they can't point outside the clone
+            "clone", "--depth", "1", "--single-branch", "--no-tags", "--", url, str(dest),
+        ]
+        try:
+            result = subprocess.run(
+                cmd, env=env, capture_output=True, text=True,
+                timeout=settings.git_clone_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise TimeoutError(
+                f"Cloning took longer than {settings.git_clone_timeout_seconds}s. Try a smaller repository."
+            ) from e
+        if result.returncode != 0:
+            logger.warning("git clone failed for %s: %s", url, result.stderr.strip())
+            raise ValueError("Could not clone the repository. Check the link is correct and the repo is public.")
+
     @property
     def active_repo_id(self) -> str:
         return self._active_repo_id
@@ -251,6 +339,9 @@ class RepoManager:
                 except ValueError:
                     rel_path = py_file.name
 
+                if py_file.stat().st_size > settings.max_file_size_bytes:
+                    continue
+
                 current_paths.add(rel_path)
                 raw = py_file.read_bytes()
                 content_hash = hash_bytes(raw)
@@ -285,6 +376,18 @@ class RepoManager:
             "imports_indexed": stats.get("imports", 0),
             "duration_seconds": duration,
         }
+
+
+def _remove_tree(path: Path) -> None:
+    """Delete a directory, including read-only files git leaves on Windows."""
+    if not path.exists():
+        return
+
+    def _make_writable_and_retry(func, target, _exc):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    shutil.rmtree(path, onerror=_make_writable_and_retry)
 
 
 repo_manager = RepoManager()

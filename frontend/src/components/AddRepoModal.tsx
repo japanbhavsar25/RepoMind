@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
-import { AlertCircle, FolderOpen, FolderPlus, Loader2, X } from 'lucide-react';
+import { AlertCircle, FolderOpen, FolderPlus, Link2, Loader2, X } from 'lucide-react';
 import { browseFolder } from '../api';
 
 interface AddRepoModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (name: string, path: string) => Promise<void>;
+  onSubmitGitHub: (url: string) => Promise<void>;
 }
 
-export const AddRepoModal: React.FC<AddRepoModalProps> = ({ isOpen, onClose, onSubmit }) => {
+type AddMode = 'github' | 'local';
+
+export const AddRepoModal: React.FC<AddRepoModalProps> = ({ isOpen, onClose, onSubmit, onSubmitGitHub }) => {
+  const [mode, setMode] = useState<AddMode>('github');
+  const [url, setUrl] = useState('');
   const [name, setName] = useState('');
   const [path, setPath] = useState('');
   const [loading, setLoading] = useState(false);
@@ -53,6 +58,24 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({ isOpen, onClose, onS
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mode === 'github') {
+      if (!url.trim()) {
+        setError('Please paste a GitHub repository link.');
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        await onSubmitGitHub(url.trim());
+        setUrl('');
+        onClose();
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to add repository.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     if (!name.trim() || !path.trim()) {
       setError('Please provide both a repository name and a folder path.');
       return;
@@ -89,8 +112,10 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({ isOpen, onClose, onS
               <FolderPlus className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-semibold text-slate-100 text-base">Add Local Repository</h3>
-              <p className="text-xs text-slate-400">Register an offline codebase on your machine</p>
+              <h3 className="font-semibold text-slate-100 text-base">Add Repository</h3>
+              <p className="text-xs text-slate-400">
+                {mode === 'github' ? 'Clone a public GitHub repository' : 'Register an offline codebase on your machine'}
+              </p>
             </div>
           </div>
           <button
@@ -104,6 +129,26 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({ isOpen, onClose, onS
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-1 p-1 rounded-md bg-slate-950 border border-slate-800">
+            {(['github', 'local'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  setMode(m);
+                  setError(null);
+                }}
+                disabled={loading || browsing}
+                className={`flex items-center justify-center space-x-1.5 py-1.5 rounded text-xs font-medium transition ${
+                  mode === m ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {m === 'github' ? <Link2 className="w-3.5 h-3.5" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                <span>{m === 'github' ? 'GitHub link' : 'Local folder'}</span>
+              </button>
+            ))}
+          </div>
+
           {error && (
             <div className="p-3.5 rounded-md bg-red-950/40 border border-red-800/60 flex items-start space-x-2.5 text-red-300 text-xs">
               <AlertCircle className="w-4 h-4 flex-shrink-0 text-red-400 mt-0.5" />
@@ -111,6 +156,26 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({ isOpen, onClose, onS
             </div>
           )}
 
+          {mode === 'github' ? (
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Repository Link
+              </label>
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://github.com/owner/repo"
+                disabled={loading}
+                className="w-full px-3.5 py-2.5 rounded-md bg-slate-950 border border-slate-800 text-slate-200 text-sm font-mono focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition placeholder:text-slate-600 disabled:opacity-60"
+                autoFocus
+              />
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Public repositories only. Python files are analyzed; large repos may take up to a minute.
+              </p>
+            </div>
+          ) : (
+          <>
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
               Repository Name
@@ -170,6 +235,8 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({ isOpen, onClose, onS
               Your source code is never copied or modified. RepoMind only reads the AST symbols and stores an isolated SQLite index in <code className="text-teal-300 font-mono text-[10px]">.repomind_data/repos/</code>.
             </p>
           </div>
+          </>
+          )}
 
           {/* Actions */}
           <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
@@ -183,18 +250,18 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({ isOpen, onClose, onS
             </button>
             <button
               type="submit"
-              disabled={loading || browsing || !name.trim() || !path.trim()}
+              disabled={loading || browsing || (mode === 'github' ? !url.trim() : !name.trim() || !path.trim())}
               className="flex items-center space-x-2 px-4 py-2 rounded-md bg-teal-600 hover:bg-teal-500 active:bg-teal-700 disabled:opacity-50 text-xs font-semibold text-slate-100 shadow-lg  transition cursor-pointer disabled:cursor-not-allowed"
             >
               {loading ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Registering...</span>
+                  <span>{mode === 'github' ? 'Cloning...' : 'Registering...'}</span>
                 </>
               ) : (
                 <>
                   <FolderPlus className="w-3.5 h-3.5" />
-                  <span>Register & Select</span>
+                  <span>{mode === 'github' ? 'Clone & Analyze' : 'Register & Select'}</span>
                 </>
               )}
             </button>

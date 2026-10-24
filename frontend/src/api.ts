@@ -50,6 +50,19 @@ export async function addLocalRepo(name: string, path: string): Promise<RepoInfo
   return res.json();
 }
 
+export async function addGitHubRepo(url: string): Promise<RepoInfo> {
+  const res = await fetch(`${BASE_URL}/repos/github`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to add repository: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export async function browseFolder(initialPath?: string): Promise<BrowseFolderResponse> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 125000);

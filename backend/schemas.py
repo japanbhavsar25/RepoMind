@@ -52,6 +52,10 @@ class AddLocalRepoRequest(BaseModel):
         return s
 
 
+class AddGitHubRepoRequest(BaseModel):
+    url: str = Field(..., min_length=1, max_length=300, description="Public HTTPS repository URL")
+
+
 class BrowseFolderRequest(BaseModel):
     initial_path: str | None = None
 

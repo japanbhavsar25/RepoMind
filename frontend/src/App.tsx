@@ -10,7 +10,7 @@ import { AskView } from './views/AskView';
 import { GraphView } from './views/GraphView';
 import { ImpactView } from './views/ImpactView';
 import { EvaluationView } from './views/EvaluationView';
-import { addLocalRepo, fetchRepos, triggerIndex } from './api';
+import { addGitHubRepo, addLocalRepo, fetchRepos, triggerIndex } from './api';
 import type { RepoInfo } from './types';
 import { AlertCircle, CheckCircle2, HardDrive, ShieldCheck } from 'lucide-react';
 
@@ -81,7 +81,16 @@ export default function App() {
   };
 
   const handleAddLocalRepo = async (name: string, path: string) => {
-    const newRepo = await addLocalRepo(name, path);
+    await registerAndIndex(await addLocalRepo(name, path));
+  };
+
+  const handleAddGitHubRepo = async (url: string) => {
+    await registerAndIndex(await addGitHubRepo(url));
+  };
+
+  const registerAndIndex = async (newRepo: RepoInfo) => {
+    const name = newRepo.name;
+    setError(null);
     // Refresh repo list
     const data = await fetchRepos();
     setRepos(data.repos);
@@ -90,6 +99,7 @@ export default function App() {
     setImpactTarget(undefined);
 
     // Automatically trigger indexing for the newly registered repository
+    if (newRepo.is_indexed) return;
     setIndexing(true);
     try {
       await triggerIndex(newRepo.id);
@@ -122,6 +132,7 @@ export default function App() {
         isOpen={isAddRepoOpen}
         onClose={() => setIsAddRepoOpen(false)}
         onSubmit={handleAddLocalRepo}
+        onSubmitGitHub={handleAddGitHubRepo}
       />
 
       {/* Navigation tabs */}
