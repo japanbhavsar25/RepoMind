@@ -24,8 +24,15 @@ class Settings(BaseSettings):
     default_repo_id: str = "ecommerce_sample"
 
     # LLM configuration
+    # "auto" uses Groq when GROQ_API_KEY is set, otherwise local Ollama.
+    llm_provider: str = "auto"
+    groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-120b"
     ollama_url: str = "http://localhost:11434"
     default_ollama_model: str = "phi3"
+
+    # Build the ChromaDB vector index as part of indexing (needed for semantic Q&A)
+    embed_on_index: bool = True
 
     # Security limits
     max_file_size_bytes: int = 2 * 1024 * 1024  # 2MB max per single file

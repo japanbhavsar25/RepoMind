@@ -79,6 +79,7 @@ class IndexRepoResponse(BaseModel):
     functions_indexed: int
     classes_indexed: int
     imports_indexed: int
+    chunks_embedded: int = 0
     duration_seconds: float
 
 
@@ -165,6 +166,9 @@ class AskResponse(BaseModel):
     intent: str = "general"
     model_used: str = "none"
     chunks_retrieved: int = 0
+    latency_ms: int | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 class GraphNode(BaseModel):

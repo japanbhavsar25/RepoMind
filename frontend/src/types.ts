@@ -103,6 +103,9 @@ export interface AskResponse {
   intent: string;
   model_used: string;
   chunks_retrieved: number;
+  latency_ms?: number | null;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
 }
 
 export interface GraphNode {

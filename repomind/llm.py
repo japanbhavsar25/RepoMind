@@ -104,3 +104,63 @@ class OllamaClient:
             return False
         except Exception:
             return False
+
+
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+
+class GroqError(RuntimeError):
+    """Raised when the Groq API cannot be reached or returns an error."""
+
+
+class GroqClient:
+    """Thin wrapper around Groq's OpenAI-compatible chat completions API.
+
+    After each ``generate`` call, ``last_usage`` holds token counts and latency
+    so callers can report cost/latency per answer.
+    """
+
+    def __init__(self, api_key: str, model: str = "openai/gpt-oss-120b", url: str = GROQ_URL) -> None:
+        self.api_key = api_key
+        self.model = model
+        self.url = url
+        self.last_usage: dict = {}
+
+    def is_alive(self) -> bool:
+        """Groq is a hosted API: treat it as available whenever a key is configured."""
+        return bool(self.api_key)
+
+    def generate(self, prompt: str, system: str | None = None, temperature: float = 0.3) -> str:
+        """Send a prompt to Groq and return the response text."""
+        import time
+
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        payload = {"model": self.model, "messages": messages, "temperature": temperature}
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+
+        start = time.perf_counter()
+        try:
+            response = requests.post(self.url, json=payload, headers=headers, timeout=60)
+        except requests.exceptions.Timeout as e:
+            raise GroqError("Groq timed out. Please try again.") from e
+        except requests.exceptions.RequestException as e:
+            raise GroqError(f"Cannot reach Groq: {e}") from e
+
+        if response.status_code == 401:
+            raise GroqError("Groq rejected the API key. Check GROQ_API_KEY in your .env file.")
+        if response.status_code == 429:
+            raise GroqError("Groq rate limit reached. Wait a minute and try again.")
+        if not response.ok:
+            raise GroqError(f"Groq returned an error ({response.status_code}): {response.text[:200]}")
+
+        data = response.json()
+        usage = data.get("usage") or {}
+        self.last_usage = {
+            "prompt_tokens": usage.get("prompt_tokens", 0),
+            "completion_tokens": usage.get("completion_tokens", 0),
+            "latency_ms": round((time.perf_counter() - start) * 1000),
+        }
+        return data["choices"][0]["message"]["content"].strip()

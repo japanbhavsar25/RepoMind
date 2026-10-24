@@ -16,7 +16,7 @@ interface AskViewProps {
 
 export const AskView: React.FC<AskViewProps> = ({ repoId, onNavigateToFile }) => {
   const [question, setQuestion] = useState('');
-  const [useLlm, setUseLlm] = useState(false); // Default to deterministic evidence mode
+  const [useLlm, setUseLlm] = useState(true); // Falls back to evidence-only when no LLM is configured
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<AskResponse | null>(null);
 
@@ -107,7 +107,7 @@ export const AskView: React.FC<AskViewProps> = ({ repoId, onNavigateToFile }) =>
                 className="w-3.5 h-3.5 text-teal-400 rounded bg-slate-950 border-slate-700 focus:ring-0 cursor-pointer"
               />
               <span className="text-xs text-slate-400">
-                Use Local Ollama LLM <span className="text-slate-500">(if running)</span>
+                Generate AI answer <span className="text-slate-500">(Groq or local Ollama)</span>
               </span>
             </label>
           </div>
@@ -131,6 +131,9 @@ export const AskView: React.FC<AskViewProps> = ({ repoId, onNavigateToFile }) =>
 
               <span className="text-xs text-slate-500 font-mono">
                 Model: {response.model_used}
+                {response.latency_ms != null && ` · ${(response.latency_ms / 1000).toFixed(1)}s`}
+                {response.prompt_tokens != null &&
+                  ` · ${response.prompt_tokens + (response.completion_tokens ?? 0)} tokens`}
               </span>
             </div>
 

@@ -366,6 +366,17 @@ class RepoManager:
             db.commit()
             stats = db.get_stats()
 
+        # Build the vector index too, so Q&A and semantic search work right away.
+        # A failure here (e.g. the embedding model can't load) leaves keyword search working.
+        chunks_embedded = 0
+        if settings.embed_on_index:
+            try:
+                from repomind.rag import RepoRAG
+
+                chunks_embedded = RepoRAG(repo.db_path).build_index(full_rebuild=True).get("total", 0)
+            except Exception as exc:
+                logger.warning("Embedding step failed for %s: %s", repo.id, exc)
+
         duration = round(time.time() - start_time, 3)
         return {
             "status": "success",
@@ -374,6 +385,7 @@ class RepoManager:
             "functions_indexed": stats.get("functions", 0),
             "classes_indexed": stats.get("classes", 0),
             "imports_indexed": stats.get("imports", 0),
+            "chunks_embedded": chunks_embedded,
             "duration_seconds": duration,
         }
 
