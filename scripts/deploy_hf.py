@@ -1,7 +1,8 @@
 """Deploy RepoMind to a Hugging Face Docker Space.
 
-Uploads the git-tracked files (so local data, secrets and build output never
-leave the machine) and prepends the Space metadata header to README.md.
+Uploads the committed HEAD tree (so local data, secrets, uncommitted edits and
+Windows CRLF line endings never reach the Space) and prepends the Space
+metadata header to README.md.
 
 Usage (after `hf auth login`):
     python scripts/deploy_hf.py               # -> <your-username>/RepoMind
@@ -10,9 +11,10 @@ Usage (after `hf auth login`):
 
 from __future__ import annotations
 
-import shutil
+import io
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 
@@ -34,11 +36,13 @@ short_description: Ask any Python GitHub repo questions, with line citations
 """
 
 
-def tracked_files() -> list[str]:
-    out = subprocess.run(
-        ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+def export_head(dest: Path) -> None:
+    """Extract the committed HEAD tree into dest, exactly as stored in git."""
+    archive = subprocess.run(
+        ["git", "archive", "--format=tar", "HEAD"], cwd=ROOT, capture_output=True, check=True
     ).stdout
-    return [line for line in out.splitlines() if line]
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        tar.extractall(dest, filter="data")
 
 
 def main() -> None:
@@ -49,15 +53,10 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory() as tmp:
         staging = Path(tmp)
-        for rel in tracked_files():
-            src = ROOT / rel
-            if src.is_file():
-                dest = staging / rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dest)
+        export_head(staging)
 
         readme = staging / "README.md"
-        readme.write_text(SPACE_HEADER + readme.read_text(encoding="utf-8"), encoding="utf-8")
+        readme.write_bytes(SPACE_HEADER.encode("utf-8") + readme.read_bytes())
 
         api.upload_folder(
             folder_path=staging,
