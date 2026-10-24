@@ -10,7 +10,7 @@ import { AskView } from './views/AskView';
 import { GraphView } from './views/GraphView';
 import { ImpactView } from './views/ImpactView';
 import { EvaluationView } from './views/EvaluationView';
-import { addGitHubRepo, addLocalRepo, fetchRepos, triggerIndex } from './api';
+import { addGitHubRepo, addLocalRepo, fetchHealth, fetchRepos, triggerIndex } from './api';
 import type { RepoInfo } from './types';
 import { AlertCircle, CheckCircle2, HardDrive, ShieldCheck } from 'lucide-react';
 
@@ -24,6 +24,13 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [localReposEnabled, setLocalReposEnabled] = useState(true);
+
+  useEffect(() => {
+    fetchHealth()
+      .then((h) => setLocalReposEnabled(h.local_repos_enabled ?? true))
+      .catch(() => {});
+  }, []);
 
   const loadRepos = useCallback(async () => {
     try {
@@ -40,7 +47,7 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to load repositories:', err);
-      setError('Could not connect to the RepoMind backend at http://127.0.0.1:8001. Please ensure the FastAPI server is running.');
+      setError('Could not connect to the RepoMind backend. If it was just starting, press Retry.');
     } finally {
       setLoading(false);
     }
@@ -133,6 +140,7 @@ export default function App() {
         onClose={() => setIsAddRepoOpen(false)}
         onSubmit={handleAddLocalRepo}
         onSubmitGitHub={handleAddGitHubRepo}
+        allowLocal={localReposEnabled}
       />
 
       {/* Navigation tabs */}

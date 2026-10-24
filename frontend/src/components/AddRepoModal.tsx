@@ -7,11 +7,18 @@ interface AddRepoModalProps {
   onClose: () => void;
   onSubmit: (name: string, path: string) => Promise<void>;
   onSubmitGitHub: (url: string) => Promise<void>;
+  allowLocal?: boolean;
 }
 
 type AddMode = 'github' | 'local';
 
-export const AddRepoModal: React.FC<AddRepoModalProps> = ({ isOpen, onClose, onSubmit, onSubmitGitHub }) => {
+export const AddRepoModal: React.FC<AddRepoModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  onSubmitGitHub,
+  allowLocal = true,
+}) => {
   const [mode, setMode] = useState<AddMode>('github');
   const [url, setUrl] = useState('');
   const [name, setName] = useState('');
@@ -129,6 +136,7 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({ isOpen, onClose, onS
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {allowLocal && (
           <div className="grid grid-cols-2 gap-1 p-1 rounded-md bg-slate-950 border border-slate-800">
             {(['github', 'local'] as const).map((m) => (
               <button
@@ -148,6 +156,7 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({ isOpen, onClose, onS
               </button>
             ))}
           </div>
+          )}
 
           {error && (
             <div className="p-3.5 rounded-md bg-red-950/40 border border-red-800/60 flex items-start space-x-2.5 text-red-300 text-xs">

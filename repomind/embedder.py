@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+# Loaded models shared across instances: loading takes seconds, and the web
+# backend creates a new CodeEmbedder per request.
+_MODEL_CACHE: dict[str, object] = {}
+
 
 class CodeEmbedder:
     """Handles embedding generation for ChromaDB storage (lazy load)."""
@@ -13,10 +17,14 @@ class CodeEmbedder:
 
     def _load(self):
         if self._model is None:
-            from sentence_transformers import SentenceTransformer
+            model = _MODEL_CACHE.get(self.model_name)
+            if model is None:
+                from sentence_transformers import SentenceTransformer
 
-            # all-MiniLM-L6-v2: 22MB, CPU-friendly, good for short text
-            self._model = SentenceTransformer(self.model_name)
+                # all-MiniLM-L6-v2: 22MB, CPU-friendly, good for short text
+                model = SentenceTransformer(self.model_name)
+                _MODEL_CACHE[self.model_name] = model
+            self._model = model
         return self._model
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:

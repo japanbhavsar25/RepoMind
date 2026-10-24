@@ -25,4 +25,5 @@ def get_health() -> HealthResponse:
         version=settings.version,
         fts5_enabled=fts5_ok,
         data_dir=str(settings.data_dir),
+        local_repos_enabled=not settings.public_mode,
     )

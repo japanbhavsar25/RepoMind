@@ -1,0 +1,14 @@
+.git
+**/__pycache__
+**/.venv
+**/node_modules
+frontend/dist
+.repomind_data
+.repomind.db
+.repomind_chroma
+.repomind_output
+.pytest_cache
+.ruff_cache
+.env
+.env.*
+*.pdf

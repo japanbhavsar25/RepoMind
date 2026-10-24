@@ -33,6 +33,13 @@ class Settings(BaseSettings):
 
     # Build the ChromaDB vector index as part of indexing (needed for semantic Q&A)
     embed_on_index: bool = True
+    # Load the embedding + reranker models at startup so the first question is fast
+    warmup_models: bool = True
+
+    # Public deployment mode (e.g. Hugging Face Spaces): disables registering
+    # server-side folders and rate-limits GitHub cloning per client IP.
+    public_mode: bool = False
+    github_adds_per_hour: int = 5
 
     # Security limits
     max_file_size_bytes: int = 2 * 1024 * 1024  # 2MB max per single file

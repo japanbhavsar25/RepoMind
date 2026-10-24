@@ -12,6 +12,7 @@ class HealthResponse(BaseModel):
     version: str
     fts5_enabled: bool
     data_dir: str
+    local_repos_enabled: bool = True
 
 
 class RepoStats(BaseModel):

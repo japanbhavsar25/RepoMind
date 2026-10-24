@@ -45,6 +45,10 @@ def rrf_fuse(
 
 
 
+# Loaded cross-encoders shared across instances (a new reranker is built per query)
+_CROSS_ENCODER_CACHE: dict[str, object] = {}
+
+
 class CrossEncoderReranker:
     """Lazy cross-encoder: reads (query, doc) together, with offline lexical-symbol fallback."""
 
@@ -57,9 +61,13 @@ class CrossEncoderReranker:
             # If model name is unknown/nonexistent, fail immediately to trigger fallback
             if "nonexistent" in self.model_name.lower():
                 raise ValueError(f"Unknown model: {self.model_name}")
-            from sentence_transformers import CrossEncoder
+            model = _CROSS_ENCODER_CACHE.get(self.model_name)
+            if model is None:
+                from sentence_transformers import CrossEncoder
 
-            self._model = CrossEncoder(self.model_name)
+                model = CrossEncoder(self.model_name)
+                _CROSS_ENCODER_CACHE[self.model_name] = model
+            self._model = model
         return self._model
 
     def _heuristic_rerank(self, query: str, docs: list[str], top_n: int = 5) -> list[int]:

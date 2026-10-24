@@ -16,7 +16,12 @@ import type {
 
 const BASE_URL = '/api';
 
-export async function fetchHealth(): Promise<{ status: string; version: string; fts5_enabled: boolean }> {
+export async function fetchHealth(): Promise<{
+  status: string;
+  version: string;
+  fts5_enabled: boolean;
+  local_repos_enabled?: boolean;
+}> {
   const res = await fetch(`${BASE_URL}/health`);
   if (!res.ok) throw new Error(`Health check failed: ${res.statusText}`);
   return res.json();
