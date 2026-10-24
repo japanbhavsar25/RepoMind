@@ -1,0 +1,4 @@
+# Keep LF everywhere so Docker/Linux builds work regardless of the dev OS
+* text=auto eol=lf
+*.png binary
+*.ico binary
