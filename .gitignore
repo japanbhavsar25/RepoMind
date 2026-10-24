@@ -13,6 +13,12 @@ build/
 .repomind.db
 .repomind_chroma/
 .repomind_output/
+.repomind_data/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+.env
 
 # Pytest
 .pytest_cache/
@@ -22,7 +28,17 @@ build/
 .vscode/
 .idea/
 *.swp
+.backup_folder_picker/
+.backup_fix_hang/
 
 # OS
 .DS_Store
 Thumbs.db
+.backup_pre_fix/
+.ruff_cache/
+
+# Private notes & local tooling (kept off GitHub)
+.claude/
+.pdf_work/
+*.pdf
+RAG_Textbook.md

@@ -1,0 +1,54 @@
+"""Application configuration and environment settings."""
+
+from pathlib import Path
+
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """RepoMind global configuration."""
+    project_name: str = "RepoMind"
+    version: str = "2.0.0"
+    api_prefix: str = "/api"
+
+    # Server host & port (default to 8001; 8000 is reserved for DataPulse)
+    host: str = "127.0.0.1"
+    port: int = 8001
+
+    # Directory layout
+    base_dir: Path = Path(__file__).resolve().parent.parent
+    data_dir: Path = base_dir / ".repomind_data"
+    samples_dir: Path = base_dir / "samples"
+    
+    # Active default repo
+    default_repo_id: str = "ecommerce_sample"
+
+    # LLM configuration
+    ollama_url: str = "http://localhost:11434"
+    default_ollama_model: str = "phi3"
+
+    # Security limits
+    max_file_size_bytes: int = 2 * 1024 * 1024  # 2MB max per single file
+    max_repo_files: int = 2000
+    git_clone_timeout_seconds: int = 60
+
+    # CORS
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8001",
+        "http://127.0.0.1:8001",
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "*",
+    ]
+
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
+
+
+settings = Settings()
+# Ensure runtime data directories exist
+settings.data_dir.mkdir(parents=True, exist_ok=True)
