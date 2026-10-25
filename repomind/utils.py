@@ -95,8 +95,9 @@ SKIP_DIRS = {
 
 
 def should_skip_dir(path: Path) -> bool:
-    """Check if a directory should be skipped."""
-    return path.name in SKIP_DIRS or path.name.endswith(".egg-info")
+    """Check if a directory should be skipped (known junk, egg-info, or hidden dot-folders)."""
+    name = path.name
+    return name in SKIP_DIRS or name.endswith(".egg-info") or (name.startswith(".") and name not in (".", ".."))
 
 
 def find_python_files(root: Path) -> list[Path]:
@@ -104,8 +105,10 @@ def find_python_files(root: Path) -> list[Path]:
     files: list[Path] = []
 
     for path in root.rglob("*.py"):
-        # Check if any parent directory should be skipped
-        if any(should_skip_dir(p) for p in path.parents):
+        # Only folders *inside* root count: root itself may live under a hidden
+        # or "build"-like folder (e.g. clones in .repomind_data/clones/<id>).
+        inner_dirs = path.relative_to(root).parts[:-1]
+        if any(should_skip_dir(Path(part)) for part in inner_dirs):
             continue
         files.append(path)
 

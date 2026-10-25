@@ -1,221 +1,150 @@
-# RepoMind 🧠 v2.0
+# RepoMind
 
-> **Local-First Code Intelligence, Dependency Graphing & Grounded RAG Platform**  
-> *Understand unfamiliar codebases, trace change impact, and ask questions backed by verifiable source citations — 100% offline, zero cloud API fees, zero telemetry.*
+**Ask questions about any Python GitHub repo and get answers that cite exact `file:line` ranges, each one checked against the parsed source.**
+
+### 👉 [Live demo: repo-mind-steel.vercel.app](https://repo-mind-steel.vercel.app/)
+
+> The backend runs on Render's free tier and sleeps after 15 idle minutes. The first visit can take **about a minute** to wake it (the page shows a "waking up" message). After that, answers take about 5–8 s.
 
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue?logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![React](https://img.shields.io/badge/React-19.0-61DAFB?logo=react&logoColor=black)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4.0-38B2AC?logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
-[![Tests](https://img.shields.io/badge/Tests-73%20passed-success)](https://github.com/your-username/RepoMind)
-[![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
+[![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
+[![Tests](https://img.shields.io/badge/tests-128%20passing-success)](tests/)
 
 ---
 
-## 🌟 What is RepoMind?
+## What it does
 
-RepoMind is a full-stack, local-first repository intelligence application and Retrieval-Augmented Generation (RAG) engine. It empowers software engineers, engineering leads, and technical auditors to rapidly onboard to unfamiliar codebases, perform change impact analysis before refactoring, and query repository semantics with deterministic evidence.
+1. **Paste a public GitHub link.** RepoMind shallow-clones it, parses every Python file with `ast`, and builds a symbol table, call graph, import graph, keyword index (SQLite FTS5) and vector index (ChromaDB).
+2. **Ask a question in plain English.** It retrieves the most relevant functions and classes and asks an LLM (Groq `openai/gpt-oss-120b`) to answer **only** from them.
+3. **Every citation is verified.** Each `[path/file.py:start-end]` in the answer is checked against the parsed source and the retrieved chunks, and the answer shows a "% verified" score.
+4. **See the structure.** It also shows the dependency graph with PageRank "important files", import cycles, orphan files, and the **blast radius** of a change (everything that depends on a file, directly or transitively).
 
-### Core Value Proposition
-- 🔒 **100% Local-First & Air-Gapped:** All parsing, indexing, vectorization, and graph algorithms run on your local machine. No code leaves your computer.
-- 🎯 **Verifiable Source Grounding:** Every answer includes exact `[file:start-end]` line-range citations verified against SQLite AST tables to eliminate AI hallucinations.
-- ⚡ **Two-Stage Hybrid Search:** Combines persistent **SQLite FTS5** BM25 sparse search and **ChromaDB** dense vector embeddings via **Reciprocal Rank Fusion ($k=60$)** with code-aware camelCase/snake_case tokenization.
-- 💥 **Downstream Blast-Radius Analysis:** Inverts the NetworkX dependency graph and call graph to trace transitive downstream dependents, preventing accidental breaking changes.
-- 📊 **Quantitative Retrieval Benchmarks:** Integrated evaluation harness reporting **Hit@1 (100%)**, **Hit@5 (100%)**, **MRR@5 (1.0000)**, and average latency (<15ms).
-- 💻 **Modern Web UI & Typer CLI:** Includes a responsive React 19 single-page application with 8 specialized views, a rich terminal CLI, and an Anthropic Model Context Protocol (MCP) server.
+The demo comes with three repos already indexed: [`pallets/itsdangerous`](https://github.com/pallets/itsdangerous), a small sample e-commerce service, and **RepoMind's own code**, so you can ask RepoMind how RepoMind works.
 
 ---
 
-## 🏗️ Architecture & 6-Stage Pipeline
+## Architecture
 
 ```
-                                +------------------------------------+
-                                |       React 19 + TypeScript SPA    |
-                                |     Overview • Files • Symbols     |
-                                |     Search • Ask • Graph • Impact  |
-                                +-----------------+------------------+
-                                                  |
-                                                  | REST API (HTTP/JSON)
-                                                  v
-+-------------------------+     +------------------------------------+
-|    Typer / Rich CLI     |     |       FastAPI Backend Server       |
-|    repomind <command>   |     |       backend/main.py (:8000)      |
-+------------+------------+     +-----------------+------------------+
-             |                                    |
-             +--------------------+---------------+
-                                  |
-                                  v
-+--------------------------------------------------------------------+
-|                       RepoMind Engine Pipeline                     |
-+--------------------------------------------------------------------+
-| Stage 1: Static AST Parsing, Cyclomatic Complexity & Call Graph    |
-| Stage 2: Symbol-Aware Chunking, SQLite FTS5 & ChromaDB Vectors     |
-| Stage 3: Code Tokenizer & Reciprocal Rank Fusion (RRF k=60)        |
-| Stage 4: Grounded Q&A Synthesizer & Strict Citation Verifier       |
-| Stage 5: NetworkX Dependency Graph, PageRank & Reverse BFS Impact  |
-| Stage 6: Git Commit Churn Hotspot Risk Scoring & HTML Visualizer   |
-+---------------------------------+----------------------------------+
-                                  |
-                                  v
-+--------------------------------------------------------------------+
-|                         Local Storage Layer                        |
-|   - SQLite (.repomind.db): files, functions, classes, calls, FTS5  |
-|   - ChromaDB (.repomind_chroma/): 384-d all-MiniLM-L6-v2 vectors   |
-+--------------------------------------------------------------------+
+ Browser
+   │
+   ▼
+ Vercel (free) ── React 19 + TypeScript + Tailwind SPA
+   │  HTTPS / JSON  (VITE_API_URL)
+   ▼
+ Render (free, 512 MB Docker) ── FastAPI
+   │
+   ├─ POST /api/repos/github ─► git clone --depth 1 (HTTPS allow-list, timeout, no prompts)
+   │                              │
+   │                              ▼
+   │                         Python `ast` parser ─► symbols, calls, imports
+   │                              │
+   │                ┌─────────────┴──────────────┐
+   │                ▼                            ▼
+   │        SQLite + FTS5 (BM25)        ChromaDB (cosine)
+   │        files/functions/classes     all-MiniLM-L6-v2 embeddings
+   │                                    via ONNX Runtime (no PyTorch)
+   │
+   ├─ POST /api/ask ─► hybrid retrieval (vector + BM25, Reciprocal Rank Fusion k=60)
+   │                     ─► rerank ─► grounded prompt ─► Groq LLM
+   │                     ─► citation verifier ─► answer + "% verified"
+   │
+   └─ /api/graph, /api/impact ─► NetworkX: PageRank, cycles, orphans, reverse-BFS blast radius
 ```
+
+The same code also runs fully offline on a laptop, with a local [Ollama](https://ollama.com) model instead of Groq, through the web app, a Typer CLI, or an MCP server.
 
 ---
 
-## 🚀 Quick Start
+## Measured results
 
-### 1. Prerequisites
-- **Python:** 3.11 or 3.12 (tested on 3.12.1)
-- **Node.js:** 18+ (tested on Node.js 24.15 & npm 11.12)
-- **Optional Local LLM:** [Ollama](https://ollama.com) running locally (`ollama pull mistral`)
+All numbers below were measured on this codebase in October 2026. The retrieval script is [`eval/run.py`](eval/run.py) and its output is in [`eval/results.md`](eval/results.md).
 
-### 2. Setup & Installation
+### Retrieval quality
+Benchmark: 20 hand-labelled questions about RepoMind's own code (64 files, 500 chunks). A hit means the expected file appears in the top-k results.
 
-```powershell
-# Clone the repository
-git clone https://github.com/your-username/RepoMind.git
+| Retrieval setup | Hit@5 | MRR@5 |
+|---|---|---|
+| Vector only | 0.85 | 0.70 |
+| Hybrid (vector + BM25, RRF) | 0.80 | 0.56 |
+| Hybrid + cross-encoder rerank | 0.85 | 0.67 |
+| **Hybrid + lexical rerank (live demo setup)** | **0.85** | **0.70** (Hit@1 0.60) |
+
+**What this shows:** on these natural-language questions, BM25 fusion on its own *hurt* ranking, because test files share a lot of vocabulary with the code they test. Reranking recovered the loss. This gold set has no identifier-style queries (like `verify_citations`), which is where keyword search should help most. Adding them is on the list.
+
+### Deployment and cost
+| Metric | Result |
+|---|---|
+| Peak memory (startup + clone + index + answer) | **938 MB → 315 MB (−66%)** after replacing PyTorch with ONNX Runtime and turning off its memory arena, so it fits Render's free 512 MB |
+| Answer time on the live free tier (warm) | 4.7–8.2 s end to end, of which the Groq call is 0.8–2.4 s |
+| Tokens per answer | about 1.3k–3.1k (prompt + completion) |
+| Indexing a new repo | about 15 s on a laptop CPU for `itsdangerous` (154 chunks); a few minutes on Render's free 0.1 vCPU |
+| Search latency (laptop CPU) | about 0.2 s per query |
+
+---
+
+## Key design decisions
+
+- **Chunk by symbol, not by token count.** Functions and classes come from the AST with exact line ranges, so every retrieved chunk maps to a citable `file:start-end`.
+- **Verify, don't trust.** The LLM is told to cite every claim with a full path. A verifier then parses the citations and checks them against SQLite and the retrieved chunks. Citations it can't match lower the "% verified" score instead of being hidden.
+- **Prompt-injection guard.** Retrieved code is fenced as context, and the system prompt says never to follow instructions found inside it.
+- **Built for 512 MB.** Embeddings run on ChromaDB's bundled ONNX MiniLM, the same model as sentence-transformers, so the vectors are compatible. The cross-encoder reranker is optional and falls back to a lexical heuristic when PyTorch isn't installed. Models are loaded once and warmed up at startup.
+- **Safe to expose publicly.** In `PUBLIC_MODE`, registering server-side folders is disabled and GitHub clones are rate-limited per IP (5 per hour). Clone URLs are HTTPS-only with a host allow-list (github.com, gitlab.com, bitbucket.org). Clones are shallow, non-interactive, time-limited, and symlinks are turned off. File reads are confined to the repo root. Repository code is parsed, never executed.
+
+---
+
+## Limitations
+
+- Python only; other languages are skipped.
+- Static analysis only: dynamic dispatch, reflection and runtime imports aren't resolved.
+- On the free tier, indexing a large repo is slow, and anything added by visitors disappears when the server restarts. Only the three demo repos are built into the image.
+- The retrieval benchmark is small (20 questions on one repo). Treat the numbers as a regression check, not a general score.
+
+---
+
+## Run it locally
+
+Requires Python 3.11+, Node 18+ and git.
+
+```bash
+git clone https://github.com/japanbhavsar25/RepoMind.git
 cd RepoMind
-
-# Create and activate Python virtual environment
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1  # Windows PowerShell
-# source .venv/bin/activate    # Linux / macOS
-
-# Install Python package and dependencies
-pip install -e .
-pip install -r backend/requirements.txt
-
-# Install frontend dependencies
-cd frontend
-npm install
-cd ..
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
+pip install -e ".[dev]"            # server + ML extras + test tools
 ```
 
-### 3. Launching the Web Application
+Pick an LLM: put `GROQ_API_KEY=gsk_...` in a `.env` file (free key from [console.groq.com](https://console.groq.com)), **or** run [Ollama](https://ollama.com) locally (`ollama pull phi3`). With neither, RepoMind still returns the retrieved evidence, just without a written answer.
 
-In Terminal 1 (Backend Server):
-```powershell
-uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+```bash
+# Terminal 1: API on :8001 (the Vite dev server proxies /api there)
+uvicorn backend.main:app --port 8001 --reload
+
+# Terminal 2: web UI on :5173
+cd frontend && npm install && npm run dev
 ```
 
-In Terminal 2 (Frontend Client):
-```powershell
-cd frontend
-npm run dev
+Run the tests: `pytest` (128 tests) and `ruff check repomind backend tests`.
+
+### CLI
+```bash
+repomind index .                 # parse ASTs into SQLite
+repomind embed                   # build the vector index
+repomind ask "Where are citations verified?"
+repomind impact repomind/rag.py  # blast radius before a refactor
+repomind graph . --open          # interactive dependency graph
+repomind evaluate                # retrieval benchmark
+repomind mcp                     # MCP server for Claude / Cursor
 ```
 
-Open your browser to **`http://localhost:5173`**. The web UI will automatically load with the bundled **`ecommerce_service`** reference repository pre-indexed and ready to explore!
+### Deploy your own (free)
+- **Backend:** in Render, choose New → Blueprint, pick this repo ([`render.yaml`](render.yaml)), and set `GROQ_API_KEY`.
+- **Frontend:** import the repo in Vercel with **Root Directory = `frontend`**, and set the backend URL in [`frontend/.env.production`](frontend/.env.production).
 
 ---
 
-## 🖥️ Web UI Feature Views
+## More docs
+[Architecture & decisions](docs/ARCHITECTURE_AND_DECISIONS.md) · [Testing & evaluation](docs/TESTING_AND_EVALUATION.md) · [Security & limitations](docs/SECURITY_AND_LIMITATIONS.md) · [Deployment](docs/DEPLOYMENT.md)
 
-| View | Purpose | Highlights |
-|---|---|---|
-| **Overview** | System dashboard | Repository stats (files, functions, classes, imports), quick actions, architectural guide. |
-| **File Explorer** | Code navigation | Interactive file tree, syntax view, line numbers, last modified timestamps. |
-| **Symbols & AST** | Structural catalog | Filter by function/class, search symbols, inspect cyclomatic complexity, arguments, docstrings, and callers. |
-| **Code Search** | Real-time hybrid search | Combined FTS5 BM25 and ChromaDB cosine retrieval with RRF ranking and intent detection. |
-| **Ask RepoMind** | Grounded Q&A | Synthesizes answers with strict citations; toggles between deterministic evidence mode and local Ollama. |
-| **Dependency Graph** | Architectural topology | Visualizes internal vs. external dependencies, calculates PageRank centrality, isolates cycle loops and dead code orphans. |
-| **Blast Radius** | Change-impact analysis | Inverts import and call graphs to compute transitive downstream dependents before making code edits. |
-| **Evaluation** | Quantitative benchmarking | Evaluates 12 ground truth queries against the repo, reporting Hit@1, Hit@5, MRR@5, and latency. |
-
----
-
-## ⌨️ CLI Usage Reference
-
-RepoMind provides a complete command-line interface for terminal workflows and scripts:
-
-```powershell
-# 1. Index repository AST symbols, complexity, and call sites
-repomind index ./samples/ecommerce_service
-
-# 2. Build ChromaDB dense vector embeddings & SQLite FTS5 index
-repomind embed ./samples/ecommerce_service
-
-# 3. Ask questions with grounded citations
-repomind ask "Where is password hashing implemented?"
-
-# 4. Analyze blast radius of a file or symbol before refactoring
-repomind impact models.py
-repomind impact OrderService.checkout
-
-# 5. Run the quantitative retrieval evaluation benchmark
-repomind evaluate
-
-# 6. Generate an interactive dependency graph
-repomind graph ./samples/ecommerce_service --open
-
-# 7. Generate a Git churn hotspot risk analysis & HTML report
-repomind report ./samples/ecommerce_service --open
-
-# 8. Start the Model Context Protocol (MCP) server for Cursor / Claude
-repomind mcp
-```
-
----
-
-## 📊 Quantitative Retrieval Benchmarks
-
-RepoMind includes an integrated benchmarking harness (`repomind/evaluator.py`) tested against the reference microservice (`samples/ecommerce_service`):
-
-| Metric | Target | Verified Score |
-|---|---|---|
-| **Hit@1** | $\ge 80\%$ | **100.0%** (12/12 queries ranked #1) |
-| **Hit@5** | $\ge 95\%$ | **100.0%** (12/12 queries in top 5) |
-| **MRR@5 (Mean Reciprocal Rank)** | $\ge 0.85$ | **1.0000** |
-| **Mean Retrieval Latency** | $< 50\text{ ms}$ | **12.3 ms** |
-
----
-
-## 🔒 Security & Safe Path Boundaries
-
-Because RepoMind analyzes third-party code, it enforces strict security controls in `backend/security.py`:
-- **Path Traversal Protection:** `resolve_safe_path()` resolves canonical paths using `Path.resolve()` and enforces `os.path.commonpath()`, blocking `../`, null bytes (`\0`), and cross-drive Windows attacks.
-- **SSRF Protection:** `validate_git_url()` validates remote URLs, permitting only HTTPS/SSH and blocking loopback (`127.0.0.1`), private RFC 1918 subnets (`10.x`, `192.168.x`), and cloud metadata endpoints (`169.254.169.254`).
-- **No Code Execution:** Static analysis uses Python's standard `ast.parse` exclusively. RepoMind **never** executes, imports, or `eval()`s inspected code.
-
----
-
-## 📚 Complete Documentation Suite
-
-For detailed technical references, visit the `docs/` directory:
-- 📖 [**Architecture & Technical Decisions**](docs/ARCHITECTURE_AND_DECISIONS.md) — Pipeline stages, RRF mathematics, and database schema.
-- 🧪 [**Testing & Retrieval Evaluation**](docs/TESTING_AND_EVALUATION.md) — 73 automated tests, test strategy, and benchmark harness.
-- 🛡️ [**Security Model & Limitations**](docs/SECURITY_AND_LIMITATIONS.md) — Threat model, SSRF protections, and static AST boundaries.
-- 🚢 [**Deployment & Operations Guide**](docs/DEPLOYMENT.md) — Local startup, environment variables, and Docker containerization.
-- 🎓 [**Learning Guide & Interview Defense**](docs/LEARNING_GUIDE.md) — Comprehensive guide with 15 technical interview questions and answers.
-
----
-
-## 🧪 Automated Testing
-
-RepoMind is backed by a comprehensive automated test suite:
-
-```powershell
-# Run all 73 unit, integration, and API tests
-pytest tests/ -v
-
-# Check code formatting and style
-ruff check repomind backend tests
-
-# Build frontend production bundle
-cd frontend; npm run build
-```
-
-**Verified Test Suite Status:**
-- `pytest tests/ -v`: **73 passed in 9.74s**
-- `ruff check`: **0 errors, 0 warnings**
-- `npm run build`: **Built in 1.59s, 0 errors**
-
----
-
-## 📄 License
-
-RepoMind is open-source software licensed under the [MIT License](LICENSE).
+## License
+Declared as MIT in [`pyproject.toml`](pyproject.toml).

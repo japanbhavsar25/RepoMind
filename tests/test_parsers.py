@@ -176,3 +176,19 @@ def test_extract_file_accepts_preloaded_source():
         funcs, _, _ = extract_file(path, file_id=1, source="def b():\n    pass\n")
 
     assert [f.name for f in funcs] == ["b"]
+
+
+def test_find_python_files_skips_hidden_dirs_inside_root_only(tmp_path):
+    from repomind.utils import find_python_files
+
+    # Root itself lives under hidden and "build" folders, like a clone in .repomind_data/
+    root = tmp_path / ".repomind_data" / "build" / "clone"
+    (root / "pkg").mkdir(parents=True)
+    (root / "pkg" / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    (root / ".backup_old").mkdir()
+    (root / ".backup_old" / "stale.py").write_text("y = 2\n", encoding="utf-8")
+    (root / "build").mkdir()
+    (root / "build" / "gen.py").write_text("z = 3\n", encoding="utf-8")
+
+    found = [p.relative_to(root).as_posix() for p in find_python_files(root)]
+    assert found == ["pkg/mod.py"]
