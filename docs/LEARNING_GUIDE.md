@@ -6,7 +6,7 @@ This guide is designed to help you deeply understand, explain, debug, and confid
 
 ## 1. The 30-Second Elevator Pitch
 
-> *"RepoMind is a local-first, privacy-preserving repository intelligence engine and full-stack web application. It combines static Python AST analysis, persistent SQLite FTS5 lexical indexing, and ChromaDB dense vector embeddings fused via Reciprocal Rank Fusion ($k=60$) to provide verifiable code search and grounded Q&A. It also builds NetworkX dependency graphs to calculate PageRank centrality and compute downstream blast-radius change impact, operating completely offline on developer hardware without requiring cloud APIs."*
+> *"RepoMind is a repository intelligence engine and full-stack web app: paste a GitHub link and ask questions that are answered with verified file:line citations. It combines static Python AST analysis, persistent SQLite FTS5 lexical indexing, and ChromaDB dense vector embeddings fused via Reciprocal Rank Fusion ($k=60$) to provide verifiable code search and grounded Q&A. It also builds NetworkX dependency graphs to calculate PageRank centrality and compute downstream blast-radius change impact, The hosted demo uses Groq for generation on a 512 MB free server; the same code runs fully offline with a local Ollama model."*
 
 ---
 
@@ -39,7 +39,7 @@ This guide is designed to help you deeply understand, explain, debug, and confid
        - Parses [orders.py:24-52] via regex
        - Queries SQLite files table to confirm orders.py exists
        - Verifies lines 24-52 fall within the actual chunk bounds
-       - Computes Groundedness Confidence Score (100%)
+       - Computes a Groundedness Confidence Score (share of citations that verify)
 
 5. Response Delivery (JSON to React UI)
    └── Frontend renders markdown answer, groundedness badge, and clickable file reference pills
@@ -91,7 +91,7 @@ This guide is designed to help you deeply understand, explain, debug, and confid
 **Answer:**
 > *"Vector embeddings from models like `all-MiniLM-L6-v2` are excellent at capturing semantic intent (e.g., matching 'deduct product stock' to 'inventory validation'). However, pure vector databases frequently fail at exact code identifiers, error codes, and specific function names like `calculate_tax` or `StripeAdapter`. Conversely, sparse BM25 keyword search is exceptional at exact identifier matching but fails when the user asks conceptual questions using different terminology.*
 >
-> *By combining SQLite FTS5 (for exact BM25 keyword matching) and ChromaDB (for dense semantic vectors) using Reciprocal Rank Fusion ($k=60$), RepoMind gets the best of both worlds: 100% precision on exact symbol lookups and robust recall on natural-language concepts."*
+> *By combining SQLite FTS5 (for exact BM25 keyword matching) and ChromaDB (for dense semantic vectors) using Reciprocal Rank Fusion ($k=60$), RepoMind aims to get the best of both. Honest caveat from my benchmark: on 20 natural-language questions, BM25 fusion actually lowered MRR from 0.70 to 0.56, because test files share vocabulary with the code they test. Adding a reranker brought it back to 0.70. My gold set doesn't yet include identifier-style queries, which is where keyword search should help most."*
 
 ### Q2: Why did you use Reciprocal Rank Fusion instead of a weighted sum of scores?
 **Answer:**
@@ -106,11 +106,11 @@ This guide is designed to help you deeply understand, explain, debug, and confid
 > 2. *Deterministic Regex Parsing: When the LLM responds, `repomind/rag.py` parses all citations using regular expressions.*
 > 3. *Grounding Validation against SQLite: Each citation is verified against the database. We check whether the file actually exists, whether the cited line range falls within the retrieved context chunks, and whether those lines exist in the file.*
 > 4. *Confidence Scoring: A Groundedness Confidence Score is computed (ratio of valid citations to total citations). In the UI and CLI, unverified citations are explicitly flagged with warning badges.*
-> 5. *Deterministic Fallback Mode: When no local LLM is running, RepoMind runs in deterministic mode, synthesizing answers directly from AST symbols with zero generative hallucination risk."*
+> 5. *Evidence-Only Fallback: When no LLM is configured (no Groq key, no Ollama), RepoMind returns the retrieved evidence with citations instead of generated prose, so there's nothing to hallucinate."*
 
 ### Q4: Why did you choose SQLite FTS5 instead of Elasticsearch or an external search engine?
 **Answer:**
-> *"RepoMind is designed to run 100% locally on developer machines without complex infrastructure or heavy memory requirements. Elasticsearch requires a JVM, hundreds of megabytes of resident memory, and background daemon management.*
+> *"RepoMind has to run on a laptop and on a 512 MB free-tier server, without extra infrastructure. Elasticsearch requires a JVM, hundreds of megabytes of resident memory, and background daemon management.*
 >
 > *SQLite is embedded in Python's standard library, requires zero background processes, runs in-process with sub-millisecond query latency, and its FTS5 extension provides high-performance BM25 indexing natively. Furthermore, using SQLite lets us store relational AST metadata (`files`, `functions`, `classes`, `symbol_calls`) and sparse text indices in a single local file with transactional ACID integrity."*
 
@@ -133,17 +133,17 @@ This guide is designed to help you deeply understand, explain, debug, and confid
 
 ### Q8: What security considerations did you address for path handling and file viewing?
 **Answer:**
-> *"Ingested repositories must be treated as untrusted input. In `backend/security.py`, we implement `resolve_safe_path()` to prevent path traversal attacks. The function checks for null bytes, resolves canonical paths using `Path.resolve()`, and verifies that the canonical path begins with the repository base directory using `os.path.commonpath`. Any attempt to traverse upward with `../` or escape via malicious symlinks throws an `HTTP 403 Forbidden`. We also enforce a 5 MB file size ceiling to prevent memory exhaustion."*
+> *"Ingested repositories must be treated as untrusted input. In `backend/security.py`, we implement `resolve_safe_path()` to prevent path traversal attacks. The function checks for null bytes, resolves canonical paths using `Path.resolve()`, and calls `relative_to()` on the repository root, which raises if the resolved path is outside it. The API turns that into `HTTP 403 Forbidden`, so `../` escapes and symlinks pointing outside the repo are blocked. When cloning, we also disable symlinks entirely (`core.symlinks=false`), skip files over 2 MB, and reject repos with more than 2,000 Python files."*
 
 ### Q9: How do you prevent Server-Side Request Forgery (SSRF) when cloning remote Git repositories?
 **Answer:**
-> *"In `backend/security.py`, `validate_git_url()` strictly permits only `https://` and `git@` schemes. It parses the target hostname and performs a DNS lookup. If the resolved IP belongs to loopback (`127.0.0.0/8`), private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), or link-local cloud metadata endpoints (`169.254.169.254`), the request is rejected with `HTTP 400 Bad Request`."*
+> *"`validate_git_url()` in `backend/security.py` accepts only `https://` URLs whose host is on an allow-list: github.com, gitlab.com or bitbucket.org. The allow-list is the real SSRF control, since internal services and cloud metadata IPs simply can't be named. It also requires a strict `owner/repo` path, which blocks shell metacharacters. The clone itself runs `git` as an argument list (no shell) with `--` before the URL, `GIT_TERMINAL_PROMPT=0` so it can't hang on a password prompt, a 60-second timeout, and `--depth 1`. On the public demo, clones are also rate-limited to 5 per IP per hour. I deliberately didn't do DNS-based IP filtering: with an allow-list it adds nothing, and DNS checks are prone to rebinding tricks anyway."*
 
 ### Q10: How did you evaluate the performance of your retrieval system?
 **Answer:**
-> *"We built an automated evaluation harness in `repomind/evaluator.py` with 12 ground-truth test queries spanning key architectural domains (authentication, database transactions, order checkout, external payment gateways, background jobs).*
+> *"I wrote 20 ground-truth questions about RepoMind's own code (`eval/gold.json`), each labelled with the file that answers it, and a script (`eval/run.py`) that measures Hit@5 and MRR@5 for several retrieval setups.*
 >
-> *For every query, the harness executes the full hybrid RRF pipeline and records Hit@1, Hit@5, Mean Reciprocal Rank (MRR@5), and retrieval latency in milliseconds. On our reference microservice (`samples/ecommerce_service`), the pipeline achieved 100% Hit@1, 100% Hit@5, 1.0000 MRR@5, with an average retrieval latency of 12.3 ms."*
+> *Results: vector-only Hit@5 0.85 / MRR 0.70; hybrid RRF 0.80 / 0.56; hybrid plus the lexical reranker used in production 0.85 / 0.70 (Hit@1 0.60), at about 0.2 s per query. The surprise was that fusion hurt until reranking was added. That's why I treat the benchmark as a regression test: I re-run it after every retrieval change. It's small (20 questions, one repo), so I don't present it as a general score."*
 
 ### Q11: What are the fundamental limitations of static Python AST analysis?
 **Answer:**

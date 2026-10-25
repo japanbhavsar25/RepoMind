@@ -42,3 +42,7 @@ Thumbs.db
 .pdf_work/
 *.pdf
 RAG_Textbook.md
+
+# Internal working notes (kept locally, not published)
+docs/INITIAL_AUDIT.md
+docs/STATE.md

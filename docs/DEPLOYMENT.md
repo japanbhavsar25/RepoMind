@@ -1,198 +1,90 @@
-# RepoMind Deployment & Operations Guide
+# RepoMind Deployment & Operations
 
-This guide describes how to run RepoMind v2.0 in local development, as a self-hosted single service, or inside containerized Docker environments.
-
----
-
-## 1. Prerequisites & Environment
-
-- **Operating System:** Windows 10/11, macOS 12+, or modern Linux (Ubuntu 22.04+).
-- **Python:** Python 3.10, 3.11, or 3.12 (tested on Python 3.12.1).
-- **Node.js:** Node.js 18.x or newer with npm (tested on Node.js 24.15.0 & npm 11.12.1).
-- **Hardware:** 8 GB RAM minimum; 2 GB free disk space for ChromaDB embeddings and SQLite indices.
-- **Git:** Git 2.30+ installed and available on `PATH`.
-- **Optional Local LLM:** [Ollama](https://ollama.com) running locally (`ollama serve`) with any model (e.g., `ollama pull mistral` or `ollama pull qwen2.5-coder:7b`).
+Three ways to run RepoMind: locally for development, as one Docker container, or as the free hosted setup used by the live demo (Vercel + Render).
 
 ---
 
-## 2. Quickstart: Local Development
+## 1. Local development
 
-### Step 1: Clone & Python Virtual Environment Setup
+Requires Python 3.11+, Node 18+ and git.
 
-```powershell
-# Clone the repository
-git clone https://github.com/your-username/RepoMind.git
+```bash
+git clone https://github.com/japanbhavsar25/RepoMind.git
 cd RepoMind
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
+pip install -e ".[dev]"                             # server + ML + test extras
+cp .env.example .env                                # then add GROQ_API_KEY (optional)
 
-# Create and activate a Python virtual environment
-python -m venv .venv
-
-# On Windows PowerShell:
-.\.venv\Scripts\Activate.ps1
-# On Linux / macOS:
-# source .venv/bin/activate
-
-# Install dependencies in editable mode
-pip install -e .
-pip install -r backend/requirements.txt
+uvicorn backend.main:app --port 8001 --reload       # API + Swagger at http://127.0.0.1:8001/docs
+cd frontend && npm install && npm run dev           # UI at http://localhost:5173 (proxies /api to :8001)
 ```
 
-### Step 2: Start the FastAPI Backend Server
+LLM options: set `GROQ_API_KEY` (free key at [console.groq.com](https://console.groq.com)), **or** run Ollama locally (`ollama pull phi3`), **or** neither (evidence-only answers).
 
-```powershell
-uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-- Backend API root: `http://127.0.0.1:8000`
-- Interactive OpenAPI Swagger Docs: `http://127.0.0.1:8000/docs`
-- Health check: `http://127.0.0.1:8000/api/health`
-
-### Step 3: Start the Vite + React Frontend
-
-In a separate terminal:
-
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-- Web UI: `http://localhost:5173`
-- The frontend connects automatically to the backend at `http://127.0.0.1:8000` (or the configured `VITE_API_BASE_URL`).
+If `frontend/dist` exists (after `npm run build`), the API server also serves the built UI at `/`.
 
 ---
 
-## 3. Environment Configuration
+## 2. Configuration
 
-RepoMind utilizes Pydantic BaseSettings and reads from environment variables or a `.env` file in the project root:
+Settings are read from environment variables or `.env` (names are case-insensitive). See [`backend/config.py`](../backend/config.py).
 
-| Variable | Default Value | Description |
+| Variable | Default | Purpose |
 |---|---|---|
-| `REPOMIND_HOST` | `127.0.0.1` | Backend HTTP bind address. |
-| `REPOMIND_PORT` | `8000` | Backend HTTP port. |
-| `REPOMIND_DATA_DIR` | `.repomind_data` | Directory for persistent SQLite DBs and Chroma collections. |
-| `REPOMIND_CORS_ORIGINS` | `["http://localhost:5173", "http://127.0.0.1:5173"]` | Allowed CORS origins for the frontend SPA. |
-| `REPOMIND_OLLAMA_URL` | `http://127.0.0.1:11434` | Endpoint of the local Ollama instance (optional). |
-| `REPOMIND_OLLAMA_MODEL` | `mistral` | Default LLM model identifier for Q&A generation. |
-| `REPOMIND_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | SentenceTransformer model used for dense code vectors. |
+| `GROQ_API_KEY` | (empty) | Enables Groq generation. Keep it secret. |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Groq model id |
+| `LLM_PROVIDER` | `auto` | `auto` (Groq if a key is set, else Ollama), `groq`, or `ollama` |
+| `OLLAMA_URL` / `DEFAULT_OLLAMA_MODEL` | `http://localhost:11434` / `phi3` | Local LLM |
+| `PUBLIC_MODE` | `false` | Public server: disables local-folder repos, rate-limits clones |
+| `GITHUB_ADDS_PER_HOUR` | `5` | Per-IP clone limit in public mode |
+| `MAX_REPO_FILES` / `MAX_FILE_SIZE_BYTES` | `2000` / `2097152` | Ingestion limits |
+| `GIT_CLONE_TIMEOUT_SECONDS` | `60` | Clone timeout |
+| `EMBED_ON_INDEX` | `true` | Build vector embeddings while indexing |
+| `WARMUP_MODELS` | `true` | Load models at startup so the first question is fast |
+| `DEFAULT_REPO_ID` | `ecommerce_sample` | Repo selected when the app starts |
+| `DATA_DIR` | `.repomind_data/` | Where indexes and clones are stored |
+| `REPOMIND_EMBED_BACKEND` | `auto` | `onnx` or `sentence-transformers` (auto picks sentence-transformers if installed) |
+| `VITE_API_URL` (frontend build) | (empty, same origin) | Backend URL when the UI is hosted separately; set in `frontend/.env.production` |
 
 ---
 
-## 4. CLI Commands Reference
+## 3. Docker (single container)
 
-RepoMind provides a rich CLI interface powered by Typer and Rich:
+The [`Dockerfile`](../Dockerfile) builds the React UI, installs the API **without PyTorch** (ONNX embeddings), bakes in the embedding model, and pre-indexes three demo repos. It listens on `$PORT` (default 7860).
 
-```powershell
-# 1. Parse and index AST symbols, cyclomatic complexity, and call graph into SQLite
-repomind index <repository_path>
-
-# 2. Chunk symbols and generate ChromaDB dense vector embeddings
-repomind embed <repository_path>
-
-# 3. Query the codebase with grounded citations
-repomind ask "Where is password hashing implemented?"
-
-# 4. Compute the downstream blast radius of a file or symbol change
-repomind impact models.py
-repomind impact OrderService.checkout
-
-# 5. Run the quantitative retrieval evaluation benchmark (Hit@1, Hit@5, MRR@5)
-repomind evaluate
-
-# 6. Generate a dependency graph and analyze PageRank, cycles, and orphans
-repomind graph <repository_path>
-
-# 7. Generate a Git churn hotspot risk analysis and interactive HTML report
-repomind report <repository_path>
-
-# 8. Start the Model Context Protocol (MCP) server for Claude / AI IDE integration
-repomind mcp
+```bash
+docker build -t repomind .
+docker run -p 7860:7860 -e GROQ_API_KEY=gsk_... repomind
+# open http://localhost:7860
 ```
+
+The image sets `PUBLIC_MODE=true` by default.
 
 ---
 
-## 5. Production Build & Unified Serving
+## 4. Free hosting: Render (API) + Vercel (UI)
 
-You can compile the frontend into static assets and serve them directly via FastAPI or an Nginx reverse proxy.
+This is how the live demo runs.
 
-### 5.1 Compiling Frontend Assets
+**Backend on Render (free web service, 512 MB):**
+1. In Render, choose **New → Blueprint** and select this repo. [`render.yaml`](../render.yaml) defines a free Docker service with health check `/api/health` and `autoDeployTrigger: commit`, so pushes to `main` redeploy.
+2. Enter `GROQ_API_KEY` when prompted (stored as a secret).
+3. Note the service URL, e.g. `https://repomind-api-xxxx.onrender.com`.
 
-```powershell
-cd frontend
-npm run build
-```
+**Frontend on Vercel (Hobby):**
+1. Put the backend URL in [`frontend/.env.production`](../frontend/.env.production) as `VITE_API_URL=...` and commit it. It's a public URL, not a secret.
+2. In Vercel, choose **Add New → Project**, import the repo, set **Root Directory = `frontend`** (Vite is detected), and deploy.
 
-This outputs static HTML, CSS, and JS bundles to `frontend/dist/`.
-
-### 5.2 Serving Frontend via FastAPI Static Files
-
-FastAPI can mount `frontend/dist/` directly:
-
-```python
-from fastapi.staticfiles import StaticFiles
-
-app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
-```
-
-Now accessing `http://127.0.0.1:8000` serves the full-stack web application from a single process.
+**Free-tier behaviour to expect:**
+- Render sleeps after 15 idle minutes; waking takes about a minute (the UI shows a "waking up" message and retries).
+- The disk is ephemeral: repos added by visitors disappear on restart. The demo repos are built into the image.
+- Indexing a new repo is slow on 0.1 vCPU (minutes for ~100 chunks).
+- Measured peak memory is about 315 MB, which fits in 512 MB.
 
 ---
 
-## 6. Docker Containerization
+## 5. Operations
 
-### 6.1 Multi-Stage `Dockerfile`
-
-```dockerfile
-# Stage 1: Build the React 19 Frontend
-FROM node:20-slim AS frontend-builder
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm ci
-COPY frontend/ ./
-RUN npm run build
-
-# Stage 2: Python Backend Runtime
-FROM python:3.12-slim
-WORKDIR /app
-
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    REPOMIND_HOST=0.0.0.0 \
-    REPOMIND_PORT=8000
-
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY repomind/ ./repomind/
-COPY backend/ ./backend/
-COPY samples/ ./samples/
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
-
-EXPOSE 8000
-
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-### 6.2 `docker-compose.yml`
-
-```yaml
-version: '3.8'
-
-services:
-  repomind:
-    build: .
-    ports:
-      - "8000:8000"
-    volumes:
-      - repomind_data:/app/.repomind_data
-    environment:
-      - REPOMIND_HOST=0.0.0.0
-      - REPOMIND_PORT=8000
-      - REPOMIND_OLLAMA_URL=http://host.docker.internal:11434
-    restart: unless-stopped
-
-volumes:
-  repomind_data:
-```
+- **Health:** `GET /api/health` returns status, version, FTS5 support and whether local repos are enabled.
+- **Per-answer metrics:** `POST /api/ask` responses include `model_used`, `latency_ms`, `prompt_tokens` and `completion_tokens`.
+- **Re-index:** `POST /api/repos/index?repo_id=...` (or the "Index Repo" button).

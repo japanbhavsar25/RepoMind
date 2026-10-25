@@ -1,6 +1,6 @@
 # RepoMind Architecture & Technical Decisions
 
-RepoMind is a local-first, privacy-preserving code intelligence platform and Retrieval-Augmented Generation (RAG) engine designed to help software engineers navigate, understand, and safely modify unfamiliar codebases.
+RepoMind is a code intelligence platform and Retrieval-Augmented Generation (RAG) engine that helps engineers navigate, understand and safely change unfamiliar Python codebases. The hosted demo runs on Vercel (UI) + Render free tier (API) with Groq for generation; the same code runs fully offline with Ollama.
 
 This document details the system architecture, component boundaries, data structures, retrieval algorithms, and engineering trade-offs of RepoMind v2.0.
 
@@ -18,7 +18,7 @@ This document details the system architecture, component boundaries, data struct
                                                         v
 +-----------------------+             +------------------------------------+
 |  Typer / Rich CLI     |             |       FastAPI Backend Server       |
-|  repomind <command>   |             |       backend/main.py (:8000)      |
+|  repomind <command>   |             |       backend/main.py (:8001)      |
 +-----------+-----------+             +-----------------+------------------+
             |                                           |
             +-------------------+   +-------------------+
@@ -81,7 +81,7 @@ This document details the system architecture, component boundaries, data struct
     ```
   - Any remaining non-symbol code (module-level definitions, constants, script bodies) is chunked with a sliding line window with configurable overlap.
   - **FTS5 Sparse Indexing:** Chunks are written directly into an SQLite `fts_chunks` virtual table using BM25 token weighting. This eliminates rebuilding an in-memory BM25 index on every query.
-  - **ChromaDB Dense Indexing:** Chunks are vectorized using SentenceTransformers `all-MiniLM-L6-v2` (384-dimensional dense vectors) and stored in `.repomind_chroma/`. Lazy initialization ensures embedding models are only loaded into memory when indexing or dense queries execute.
+  - **ChromaDB Dense Indexing:** Chunks are vectorized with `all-MiniLM-L6-v2` (384-d) and stored in ChromaDB. Two interchangeable runtimes produce the same vectors: sentence-transformers (PyTorch, when the `[ml]` extra is installed) or ChromaDB's bundled ONNX Runtime model (used in the 512 MB deployment, with the ONNX memory arena disabled and batches of 8). Models load lazily, once per process, and the web server warms them up at startup.
 
 ### Stage 3: Code-Aware Two-Stage Hybrid Retrieval
 - **Location:** `repomind/hybrid.py`, `repomind/utils.py`
@@ -101,8 +101,9 @@ This document details the system architecture, component boundaries, data struct
 - **Mechanism:**
   - **Evidence Synthesis:** Assembles retrieved chunks into a prompt bounded by strict instructions: every claim must be grounded in provided context using the syntax `[file:start_line-end_line]`.
   - **Dual Mode Operation:**
-    1. **Deterministic Mode (Default / Offline):** When no local LLM is available, generates structured evidence summaries directly from verified AST symbols and code slices, with zero hallucination risk.
-    2. **Local LLM Mode (Ollama):** Queries a local Ollama instance (e.g., `mistral`, `llama3`, `qwen2.5-coder`) via HTTP REST (`http://127.0.0.1:11434/api/generate`). No cloud APIs or external data transmission.
+    1. **Groq (hosted demo):** used when `GROQ_API_KEY` is set (`openai/gpt-oss-120b` by default). Only the retrieved snippets are sent. Each answer reports latency and token counts.
+    2. **Local LLM (Ollama):** queries a local Ollama model over HTTP. Nothing leaves the machine.
+    3. **Evidence-only fallback:** with no LLM configured, returns the retrieved chunks and their citations without generated prose.
   - **Deterministic Citation Verifier:** Uses regular expressions to extract all `[path:start-end]` citations from the response. Validates each against the SQLite `files` table and chunk line boundaries. Computes a Groundedness Confidence Score (0-100%) and flags unverified or out-of-bounds citations.
 
 ### Stage 5: Dependency Graph, PageRank & Downstream Blast-Radius Analysis
@@ -200,6 +201,7 @@ CREATE VIRTUAL TABLE fts_chunks USING fts5(
 | **Python Standard `ast` over Tree-sitter** | Tree-sitter, Pygments, Regex | Zero external C compiler/binary wheel dependencies; standard library reliability; perfect compatibility across Windows/macOS/Linux. (Trade-off: Python-only static parsing in v2.0). |
 | **Reciprocal Rank Fusion ($k=60$)** | Linear Score Combination ($\alpha \cdot \text{dense} + \beta \cdot \text{sparse}$) | BM25 scores (unbounded positive reals) and cosine similarities ($-1$ to $1$) have completely different distributions. Normalizing them requires ad-hoc calibration. RRF depends purely on ranked positions and is robust against distribution shifts. |
 | **SQLite FTS5 + ChromaDB Hybrid** | Single Vector Database, Pure Lucene/Elasticsearch | Vector DBs struggle with exact identifier search (`calculate_tax`); keyword search struggles with conceptual questions ("how are errors handled?"). Hybrid indexing combines the strengths of both without heavy JVM or server dependencies. |
-| **Deterministic Mode by Default** | Mandatory Cloud LLM (OpenAI, Anthropic) | Guarantees 100% functionality out of the box with zero API costs, zero data leakage, and works completely offline on air-gapped systems or 8 GB RAM laptops. |
+| **Pluggable LLM (Groq / Ollama / none)** | One mandatory cloud LLM | Groq gives fast, free-tier generation for the public demo; Ollama keeps code fully local; evidence-only mode still works with no LLM at all. |
+| **ONNX Runtime instead of PyTorch for the deployment** | sentence-transformers on PyTorch | Same embedding model, but peak memory fell from 938 MB to 315 MB, so it fits a free 512 MB instance. Trade-off: no cross-encoder reranker there (lexical fallback), and slower indexing on 0.1 vCPU. |
 | **FastAPI + React 19 / Vite** | Monolithic Jinja2 SSR, Streamlit | Enables clean REST API separation, strongly typed frontend interfaces, instant HMR development, and interactive client-side graph explorations. |
 | **Strict Path Traversal Boundary** | Direct `open(path)` | Repositories must be treated as untrusted input. `resolve_safe_path` prevents directory escape attacks via `../` or malicious symlinks. |

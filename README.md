@@ -147,4 +147,4 @@ repomind mcp                     # MCP server for Claude / Cursor
 [Architecture & decisions](docs/ARCHITECTURE_AND_DECISIONS.md) · [Testing & evaluation](docs/TESTING_AND_EVALUATION.md) · [Security & limitations](docs/SECURITY_AND_LIMITATIONS.md) · [Deployment](docs/DEPLOYMENT.md)
 
 ## License
-Declared as MIT in [`pyproject.toml`](pyproject.toml).
+[MIT](LICENSE) © 2026 Japan Bhavsar
