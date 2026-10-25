@@ -16,7 +16,11 @@ import type {
 
 // Same-origin by default (dev proxy / single container). When the UI is hosted
 // separately (e.g. Vercel), VITE_API_URL points at the backend (e.g. Render).
-const BASE_URL = `${(import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')}/api`;
+const API_ORIGIN = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+const BASE_URL = `${API_ORIGIN}/api`;
+
+/** Human-readable backend host, for display (e.g. "repomind-api.onrender.com"). */
+export const API_HOST = API_ORIGIN ? new URL(API_ORIGIN).host : window.location.host;
 
 export async function fetchHealth(): Promise<{
   status: string;

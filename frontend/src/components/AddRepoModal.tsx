@@ -180,7 +180,7 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({
                 autoFocus
               />
               <p className="mt-1.5 text-[11px] text-slate-500">
-                Public repositories only. Python files are analyzed; large repos may take up to a minute.
+                Public repositories only. Python files are analyzed. Downloading takes seconds; indexing then continues in the background.
               </p>
             </div>
           ) : (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Bot,
   ExternalLink,
@@ -6,8 +6,37 @@ import {
   HelpCircle,
   ShieldCheck,
 } from 'lucide-react';
-import { askQuestion } from '../api';
-import type { AskResponse } from '../types';
+import { askQuestion, fetchSymbols } from '../api';
+import type { AskResponse, SymbolInfo } from '../types';
+
+const ECOMMERCE_SAMPLE_QUESTIONS = [
+  'Where is password hashing implemented?',
+  'How does order checkout validate inventory?',
+  'What payment gateways are supported?',
+  'Which background task is orphaned with no incoming imports?',
+];
+
+const GENERIC_QUESTIONS = [
+  'What are the main modules and what does each do?',
+  'Where is error handling implemented?',
+];
+
+/** Build starter questions from a repo's own public classes and most complex functions. */
+function suggestionsFromSymbols(symbols: SymbolInfo[]): string[] {
+  const isPublic = (s: SymbolInfo) => !s.name.startsWith('_') && !/(^|\/)tests?\//.test(s.file_path);
+  const classes = symbols
+    .filter((s) => s.kind === 'class' && isPublic(s))
+    .sort((a, b) => Number(Boolean(b.docstring)) - Number(Boolean(a.docstring)))
+    .slice(0, 2)
+    .map((s) => `What is the ${s.name} class responsible for?`);
+  const functions = symbols
+    .filter((s) => s.kind === 'function' && isPublic(s) && !s.name.startsWith('test'))
+    .sort((a, b) => b.complexity - a.complexity)
+    .slice(0, 2)
+    .map((s) => `How does ${s.name} work?`);
+  const picked = [...classes, ...functions];
+  return picked.length > 0 ? picked : GENERIC_QUESTIONS;
+}
 
 interface AskViewProps {
   repoId: string;
@@ -20,12 +49,19 @@ export const AskView: React.FC<AskViewProps> = ({ repoId, onNavigateToFile }) =>
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<AskResponse | null>(null);
 
-  const sampleQuestions = [
-    'Where is password hashing implemented?',
-    'How does order checkout validate inventory?',
-    'What payment gateways are supported?',
-    'Which background task is orphaned with no incoming imports?',
-  ];
+  const [symbolQuestions, setSymbolQuestions] = useState<string[]>([]);
+  const sampleQuestions = repoId === 'ecommerce_sample' ? ECOMMERCE_SAMPLE_QUESTIONS : symbolQuestions;
+
+  useEffect(() => {
+    if (repoId === 'ecommerce_sample') return;
+    let cancelled = false;
+    fetchSymbols(repoId)
+      .then((res) => !cancelled && setSymbolQuestions(suggestionsFromSymbols(res.symbols)))
+      .catch(() => !cancelled && setSymbolQuestions(GENERIC_QUESTIONS));
+    return () => {
+      cancelled = true;
+    };
+  }, [repoId]);
 
   const handleAsk = async (queryText?: string) => {
     const q = queryText || question;

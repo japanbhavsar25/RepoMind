@@ -16,8 +16,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ repo, onNavigate }) 
       <div className="max-w-2xl space-y-4">
         <h1 className="text-xl font-semibold text-slate-100">Repository overview</h1>
         <p className="text-sm text-slate-400 leading-relaxed">
-          Select an indexed repository from the header, or register a local folder to begin. RepoMind parses Python ASTs,
-          builds a dependency graph, and indexes symbols for search and grounded Q&amp;A — entirely on your machine.
+          Select an indexed repository from the header, or add a GitHub repository to begin. RepoMind parses Python ASTs,
+          builds a dependency graph, and indexes symbols for search and grounded Q&amp;A.
         </p>
         <div className="flex gap-2">
           <button onClick={() => onNavigate('search')} className="px-3 py-1.5 text-sm rounded border border-slate-700 hover:bg-slate-800 text-slate-200">
@@ -65,9 +65,12 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ repo, onNavigate }) 
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Guarantees
           </h2>
           <ul className="text-xs text-slate-400 space-y-1.5 leading-relaxed">
-            <li>100% offline — no code or vectors leave the machine.</li>
-            <li>Exact line-range citations verified against SQLite.</li>
-            <li>Incremental reindex via SHA-256 byte hashes.</li>
+            <li>Every answer cites exact file:line ranges, checked against the parsed source.</li>
+            <li>
+              Parsing, indexing and search run on the RepoMind server. Only the few retrieved snippets are sent
+              to the LLM (Groq in this online demo, or a local Ollama model when self-hosted).
+            </li>
+            <li>Repository code is parsed with Python&apos;s AST — never executed.</li>
           </ul>
         </div>
         <div className="border border-slate-800 rounded p-4 space-y-2">
@@ -76,7 +79,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ repo, onNavigate }) 
           </h2>
           <ul className="text-xs text-slate-400 space-y-1.5 leading-relaxed">
             <li>Static analysis only — dynamic calls and reflection are not inferred.</li>
-            <li>Imported code is never executed or compiled.</li>
+            <li>Python files only; other languages are skipped.</li>
             <li>Abstains when retrieved chunks lack evidence.</li>
           </ul>
         </div>

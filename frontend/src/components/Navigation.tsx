@@ -38,7 +38,7 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, onTabChange }
   ];
 
   return (
-    <nav className="border-b border-slate-800 bg-slate-900 px-6">
+    <nav className="border-b border-slate-800 bg-slate-900 px-4 sm:px-6">
       <div className="max-w-7xl mx-auto flex space-x-1 overflow-x-auto scrollbar-none py-2">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;

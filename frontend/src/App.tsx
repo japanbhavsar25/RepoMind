@@ -10,9 +10,9 @@ import { AskView } from './views/AskView';
 import { GraphView } from './views/GraphView';
 import { ImpactView } from './views/ImpactView';
 import { EvaluationView } from './views/EvaluationView';
-import { addGitHubRepo, addLocalRepo, fetchHealth, fetchRepos, triggerIndex } from './api';
+import { API_HOST, addGitHubRepo, addLocalRepo, fetchHealth, fetchRepos, triggerIndex } from './api';
 import type { RepoInfo } from './types';
-import { AlertCircle, CheckCircle2, HardDrive, ShieldCheck } from 'lucide-react';
+import { AlertCircle, CheckCircle2, FileCode2, ShieldCheck } from 'lucide-react';
 
 export default function App() {
   const [repos, setRepos] = useState<RepoInfo[]>([]);
@@ -23,6 +23,7 @@ export default function App() {
   const [indexing, setIndexing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [waking, setWaking] = useState(false);
+  const [indexingRepoName, setIndexingRepoName] = useState<string | null>(null);
   const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Start hidden; enabled once the backend confirms it's a local (non-public) install
@@ -106,7 +107,10 @@ export default function App() {
   };
 
   const handleAddGitHubRepo = async (url: string) => {
-    await registerAndIndex(await addGitHubRepo(url));
+    // Wait only for the clone; indexing can take minutes on a small server, so it
+    // continues in the background (with a progress banner) after the modal closes.
+    const newRepo = await addGitHubRepo(url);
+    void registerAndIndex(newRepo);
   };
 
   const registerAndIndex = async (newRepo: RepoInfo) => {
@@ -122,6 +126,7 @@ export default function App() {
     // Automatically trigger indexing for the newly registered repository
     if (newRepo.is_indexed) return;
     setIndexing(true);
+    setIndexingRepoName(name);
     try {
       await triggerIndex(newRepo.id);
       const refreshed = await fetchRepos();
@@ -131,6 +136,7 @@ export default function App() {
       setError(`Repository '${name}' registered, but initial indexing encountered an issue: ${idxErr instanceof Error ? idxErr.message : String(idxErr)}`);
     } finally {
       setIndexing(false);
+      setIndexingRepoName(null);
     }
   };
 
@@ -161,7 +167,23 @@ export default function App() {
       <Navigation activeTab={activeTab} onTabChange={setActiveTab} />
 
       {/* Main content body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-6 sm:p-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 min-w-0">
+        {indexingRepoName && (
+          <div
+            role="status"
+            className="mb-6 bg-teal-950/40 border border-teal-800/60 rounded-md p-4 flex items-start space-x-3 text-teal-200 text-sm"
+          >
+            <div className="w-4 h-4 mt-0.5 flex-shrink-0 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
+            <div className="flex-1">
+              <span className="font-semibold">Indexing {indexingRepoName}…</span>{' '}
+              <span className="text-teal-300/80">
+                Parsing files and building the search index. On the free demo server this can take a few minutes;
+                you can browse other tabs meanwhile.
+              </span>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="mb-6 bg-red-950/40 border border-red-800/60 rounded-md p-4 flex items-start space-x-3 text-red-300 text-sm">
             <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-400 mt-0.5" />
@@ -232,16 +254,16 @@ export default function App() {
       </main>
 
       {/* Global Footer */}
-      <footer className="border-t border-slate-800 bg-slate-950/90 px-6 py-4 mt-auto text-xs text-slate-500">
+      <footer className="border-t border-slate-800 bg-slate-950/90 px-4 sm:px-6 py-4 mt-auto text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center space-x-4">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
             <span className="flex items-center space-x-1.5 text-emerald-400">
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>Engine Status: Online</span>
             </span>
             <span className="flex items-center space-x-1.5 text-slate-400">
-              <HardDrive className="w-3.5 h-3.5" />
-              <span>100% Local-First Storage</span>
+              <FileCode2 className="w-3.5 h-3.5" />
+              <span>Python AST parsing</span>
             </span>
             <span className="flex items-center space-x-1.5 text-slate-400">
               <ShieldCheck className="w-3.5 h-3.5" />
@@ -249,9 +271,9 @@ export default function App() {
             </span>
           </div>
 
-          <div className="flex items-center space-x-3 text-slate-400">
-            <span className="font-mono bg-slate-900 px-2 py-0.5 rounded border border-slate-800 text-[11px]">
-              API: 127.0.0.1:8001
+          <div className="flex items-center space-x-3 text-slate-400 min-w-0">
+            <span className="font-mono bg-slate-900 px-2 py-0.5 rounded border border-slate-800 text-[11px] truncate">
+              API: {API_HOST}
             </span>
             <span>•</span>
             <span>RepoMind</span>
