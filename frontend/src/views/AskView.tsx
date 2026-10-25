@@ -23,7 +23,11 @@ const GENERIC_QUESTIONS = [
 
 /** Build starter questions from a repo's own public classes and most complex functions. */
 function suggestionsFromSymbols(symbols: SymbolInfo[]): string[] {
-  const isPublic = (s: SymbolInfo) => !s.name.startsWith('_') && !/(^|\/)tests?\//.test(s.file_path);
+  // Skip private names, tests, and packaging/tooling scripts (setup.py etc.)
+  const isPublic = (s: SymbolInfo) =>
+    !s.name.startsWith('_') &&
+    !/(^|\/)(tests?|docs|examples)\//.test(s.file_path) &&
+    !/(^|\/)(setup|conftest|noxfile|tasks)\.py$/.test(s.file_path);
   const classes = symbols
     .filter((s) => s.kind === 'class' && isPublic(s))
     .sort((a, b) => Number(Boolean(b.docstring)) - Number(Boolean(a.docstring)))
