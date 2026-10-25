@@ -39,9 +39,10 @@ USER user
 # Bake the ONNX embedding model into the image so startup never downloads it
 RUN python -c "from repomind.embedder import CodeEmbedder; CodeEmbedder().embed_texts(['warm up'])"
 
-# Pre-index the bundled sample and one real GitHub repo so the demo is instant
+# Pre-index the bundled sample, RepoMind's own code and one real GitHub repo so the demo is instant
 RUN python -c "from backend.services.repo_manager import repo_manager as m; \
 m.index_repo('ecommerce_sample'); \
+m.index_repo('repomind_core'); \
 r, _ = m.add_github_repo('https://github.com/pallets/itsdangerous'); \
 m.index_repo(r.id)"
 
