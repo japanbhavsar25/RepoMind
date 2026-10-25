@@ -7,7 +7,7 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
-    autoDeploy: true
+    autoDeployTrigger: commit
     envVars:
       - key: GROQ_API_KEY
         sync: false
