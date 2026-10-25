@@ -1,0 +1,13 @@
+# Render Blueprint: free Docker web service for the RepoMind backend.
+# In Render: New -> Blueprint -> pick this repo. It asks for GROQ_API_KEY.
+services:
+  - type: web
+    name: repomind-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false

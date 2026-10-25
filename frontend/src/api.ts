@@ -14,7 +14,9 @@ import type {
   SymbolListResponse,
 } from './types';
 
-const BASE_URL = '/api';
+// Same-origin by default (dev proxy / single container). When the UI is hosted
+// separately (e.g. Vercel), VITE_API_URL points at the backend (e.g. Render).
+const BASE_URL = `${(import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')}/api`;
 
 export async function fetchHealth(): Promise<{
   status: string;

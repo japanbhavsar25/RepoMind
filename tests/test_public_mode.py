@@ -80,6 +80,7 @@ def test_models_are_cached_across_instances(monkeypatch):
         loads.append(name)
         return FakeModel()
 
+    monkeypatch.setenv("REPOMIND_EMBED_BACKEND", "sentence-transformers")
     monkeypatch.setattr(embedder, "_MODEL_CACHE", {})
     monkeypatch.setattr("sentence_transformers.SentenceTransformer", fake_st)
     embedder.CodeEmbedder("fake-model").embed_texts(["a"])

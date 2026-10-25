@@ -12,7 +12,6 @@ license = {text = "MIT"}
 dependencies = [
     "typer>=0.12.0",
     "rich>=13.0.0",
-    "sentence-transformers>=2.2.0",
     "chromadb>=0.4.0",
     "requests>=2.31.0",
     "networkx>=3.0",
@@ -23,13 +22,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# PyTorch-based models: cross-encoder reranking. Without it, embeddings use
+# ChromaDB's bundled ONNX MiniLM and reranking uses a lexical heuristic.
+ml = [
+    "sentence-transformers>=2.2.0",
+]
 server = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "pydantic-settings>=2.0.0",
 ]
 dev = [
-    "repomind[server]",
+    "repomind[server,ml]",
     "httpx>=0.27.0",
     "pytest>=7.0.0",
     "ruff>=0.1.0",

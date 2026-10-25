@@ -47,6 +47,7 @@ def rrf_fuse(
 
 # Loaded cross-encoders shared across instances (a new reranker is built per query)
 _CROSS_ENCODER_CACHE: dict[str, object] = {}
+_CROSS_ENCODER_UNAVAILABLE: set[str] = set()
 
 
 class CrossEncoderReranker:
@@ -61,10 +62,16 @@ class CrossEncoderReranker:
             # If model name is unknown/nonexistent, fail immediately to trigger fallback
             if "nonexistent" in self.model_name.lower():
                 raise ValueError(f"Unknown model: {self.model_name}")
+            if self.model_name in _CROSS_ENCODER_UNAVAILABLE:
+                raise RuntimeError(f"Cross-encoder {self.model_name} unavailable; using heuristic rerank")
             model = _CROSS_ENCODER_CACHE.get(self.model_name)
             if model is None:
-                from sentence_transformers import CrossEncoder
-
+                try:
+                    from sentence_transformers import CrossEncoder
+                except ImportError:
+                    # Slim install (no PyTorch): remember, so we don't retry the import per query
+                    _CROSS_ENCODER_UNAVAILABLE.add(self.model_name)
+                    raise
                 model = CrossEncoder(self.model_name)
                 _CROSS_ENCODER_CACHE[self.model_name] = model
             self._model = model

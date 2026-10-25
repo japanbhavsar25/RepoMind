@@ -22,33 +22,47 @@ export default function App() {
   const [impactTarget, setImpactTarget] = useState<string | undefined>(undefined);
   const [indexing, setIndexing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [waking, setWaking] = useState(false);
   const [isAddRepoOpen, setIsAddRepoOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [localReposEnabled, setLocalReposEnabled] = useState(true);
-
-  useEffect(() => {
-    fetchHealth()
-      .then((h) => setLocalReposEnabled(h.local_repos_enabled ?? true))
-      .catch(() => {});
-  }, []);
+  // Start hidden; enabled once the backend confirms it's a local (non-public) install
+  const [localReposEnabled, setLocalReposEnabled] = useState(false);
 
   const loadRepos = useCallback(async () => {
+    // Free hosting sleeps when idle and takes ~1 minute to wake, so keep
+    // retrying for a while (showing a "waking up" message) before giving up.
+    const deadline = Date.now() + 150_000;
+    setError(null);
     try {
-      setError(null);
-      const data = await fetchRepos();
-      setRepos(data.repos);
-      if (data.repos.length > 0) {
-        setActiveRepoId((prev) => {
-          if (prev && data.repos.some((r: RepoInfo) => r.id === prev)) {
-            return prev;
+      for (;;) {
+        try {
+          const data = await fetchRepos();
+          setRepos(data.repos);
+          if (data.repos.length > 0) {
+            setActiveRepoId((prev) => {
+              if (prev && data.repos.some((r: RepoInfo) => r.id === prev)) {
+                return prev;
+              }
+              return data.active_repo_id || data.repos[0].id;
+            });
           }
-          return data.active_repo_id || data.repos[0].id;
-        });
+          // Server is up: ask whether local-folder repos are allowed (off on the public demo)
+          fetchHealth()
+            .then((h) => setLocalReposEnabled(h.local_repos_enabled ?? true))
+            .catch(() => {});
+          return;
+        } catch (err) {
+          if (Date.now() > deadline) {
+            console.error('Failed to load repositories:', err);
+            setError('Could not connect to the RepoMind backend. Press Retry in a moment.');
+            return;
+          }
+          setWaking(true);
+          await new Promise((resolve) => setTimeout(resolve, 4000));
+        }
       }
-    } catch (err) {
-      console.error('Failed to load repositories:', err);
-      setError('Could not connect to the RepoMind backend. If it was just starting, press Retry.');
     } finally {
+      setWaking(false);
       setLoading(false);
     }
   }, []);
@@ -166,7 +180,15 @@ export default function App() {
         {loading ? (
           <div className="flex flex-col items-center justify-center py-24 text-slate-400 space-y-3">
             <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm">Connecting to local RepoMind engine...</p>
+            <p className="text-sm">
+              {waking ? 'Waking up the server…' : 'Connecting to the RepoMind engine…'}
+            </p>
+            {waking && (
+              <p className="text-xs text-slate-500 max-w-sm text-center">
+                The free demo server sleeps when nobody is using it. It takes about a minute to start —
+                thanks for waiting!
+              </p>
+            )}
           </div>
         ) : (
           <>

@@ -29,15 +29,19 @@ logger = logging.getLogger("repomind.api")
 
 def _warm_up_models() -> None:
     """Load the embedding and reranker models once so the first question is fast."""
-    try:
-        from repomind.embedder import CodeEmbedder
-        from repomind.hybrid import CrossEncoderReranker
+    from repomind.embedder import CodeEmbedder, embed_backend
+    from repomind.hybrid import CrossEncoderReranker
 
+    try:
         CodeEmbedder().embed_texts(["warm up"])
-        CrossEncoderReranker()._load()
-        logger.info("Search models loaded and ready.")
+        logger.info("Embedding model ready (%s backend).", embed_backend())
     except Exception as exc:
-        logger.warning("Model warm-up failed (first query will load them): %s", exc)
+        logger.warning("Embedding warm-up failed (first query will load it): %s", exc)
+    try:
+        CrossEncoderReranker()._load()
+        logger.info("Cross-encoder reranker ready.")
+    except Exception:
+        logger.info("Cross-encoder not installed; using heuristic reranking (slim mode).")
 
 
 @asynccontextmanager

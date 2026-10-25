@@ -1,6 +1,7 @@
-# RepoMind web app: one container serving the FastAPI API and the built React UI.
-# Built for Hugging Face Spaces (Docker SDK, port 7860, non-root user 1000),
-# but runs anywhere:  docker build -t repomind . && docker run -p 7860:7860 -e GROQ_API_KEY=... repomind
+# RepoMind web app: one container serving the FastAPI API (and the built React UI).
+# Slim build for 512 MB hosts such as Render's free tier: no PyTorch. Embeddings
+# run on ChromaDB's bundled ONNX MiniLM; reranking uses the lexical heuristic.
+#   docker build -t repomind . && docker run -p 7860:7860 -e GROQ_API_KEY=... repomind
 
 # ---- Stage 1: build the React frontend ----
 FROM node:22-slim AS frontend
@@ -19,13 +20,11 @@ RUN apt-get update \
 
 RUN useradd -m -u 1000 user
 ENV HOME=/home/user \
-    HF_HOME=/home/user/.cache/huggingface \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    REPOMIND_EMBED_BACKEND=onnx
 
 WORKDIR /app
 
-# CPU-only PyTorch keeps the image ~2GB smaller than the default CUDA build
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 COPY pyproject.toml README.md ./
 COPY repomind/ repomind/
 RUN pip install --no-cache-dir ".[server]"
@@ -37,9 +36,8 @@ RUN chown -R user:user /app
 
 USER user
 
-# Bake the search models into the image so startup never downloads them
-RUN python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; \
-SentenceTransformer('all-MiniLM-L6-v2'); CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+# Bake the ONNX embedding model into the image so startup never downloads it
+RUN python -c "from repomind.embedder import CodeEmbedder; CodeEmbedder().embed_texts(['warm up'])"
 
 # Pre-index the bundled sample and one real GitHub repo so the demo is instant
 RUN python -c "from backend.services.repo_manager import repo_manager as m; \
@@ -47,9 +45,10 @@ m.index_repo('ecommerce_sample'); \
 r, _ = m.add_github_repo('https://github.com/pallets/itsdangerous'); \
 m.index_repo(r.id)"
 
-ENV HF_HUB_OFFLINE=1 \
-    PUBLIC_MODE=true \
-    DEFAULT_REPO_ID=gh_pallets_itsdangerous_0eed211a
+ENV PUBLIC_MODE=true \
+    DEFAULT_REPO_ID=gh_pallets_itsdangerous_0eed211a \
+    PORT=7860
 
 EXPOSE 7860
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Hosts like Render inject PORT; default 7860
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT}"]
