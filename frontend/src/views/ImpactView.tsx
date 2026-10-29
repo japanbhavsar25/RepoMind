@@ -1,15 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import {
-  AlertTriangle,
-  ArrowRight,
-  Code2,
-  FileCode,
-  GitFork,
-  Search,
-  ShieldAlert,
-} from 'lucide-react';
-import { fetchImpact } from '../api';
+import { Search } from 'lucide-react';
+import { fetchGraph, fetchImpact } from '../api';
 import type { ImpactResponse } from '../types';
+import { Button, Chip, Empty, Notice, PageHeader, SectionTitle, Spinner, inputClass } from '../components/ui';
 
 interface ImpactViewProps {
   repoId: string;
@@ -17,51 +10,79 @@ interface ImpactViewProps {
   onNavigateToFile?: (path: string) => void;
 }
 
-export const ImpactView: React.FC<ImpactViewProps> = ({
-  repoId,
-  initialTarget = 'models.py',
-  onNavigateToFile,
-}) => {
-  const [target, setTarget] = useState(initialTarget);
+const FileList: React.FC<{ files: string[]; onOpen?: (path: string) => void }> = ({ files, onOpen }) => (
+  <ul className="divide-y divide-line border-y border-line">
+    {files.map((f) => (
+      <li key={f}>
+        <button
+          onClick={() => onOpen?.(f)}
+          className="w-full text-left py-2 px-1 font-mono text-[13px] text-ink hover:text-accent truncate"
+        >
+          {f}
+        </button>
+      </li>
+    ))}
+  </ul>
+);
+
+export const ImpactView: React.FC<ImpactViewProps> = ({ repoId, initialTarget, onNavigateToFile }) => {
+  const [target, setTarget] = useState(initialTarget ?? '');
   const [impact, setImpact] = useState<ImpactResponse | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (initialTarget) {
-      setTarget(initialTarget);
-      runImpact(initialTarget);
-    }
-  }, [initialTarget, repoId]);
+  const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
   const runImpact = async (t: string) => {
     if (!t.trim()) return;
     setLoading(true);
+    setError(null);
     try {
       const res = await fetchImpact(t.trim(), repoId);
       setImpact(res);
     } catch (err) {
       console.error('Failed to compute impact:', err);
+      setError(err instanceof Error ? err.message : 'Could not work out the impact.');
     } finally {
       setLoading(false);
     }
   };
 
-  const sampleTargets = ['models.py', 'database.py', 'auth.py', 'calculate_tax', 'hash_token'];
+  // Suggest this repo's most depended-on files; start with the top one if nothing was picked
+  useEffect(() => {
+    let cancelled = false;
+    setImpact(null);
+    if (initialTarget) {
+      setTarget(initialTarget);
+      runImpact(initialTarget);
+    }
+    fetchGraph(repoId)
+      .then((g) => {
+        if (cancelled) return;
+        const top = g.pagerank_leaderboard.slice(0, 5).map((p) => p.file);
+        setSuggestions(top);
+        if (!initialTarget && top[0]) {
+          setTarget(top[0]);
+          runImpact(top[0]);
+        }
+      })
+      .catch(() => !cancelled && setSuggestions([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [initialTarget, repoId]);
+
+  const direct = impact?.direct_importers ?? [];
+  const indirect = (impact?.transitive_dependents ?? []).filter((f) => !direct.includes(f));
+  const total = impact?.transitive_dependents.length ?? 0;
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Target Search Box */}
-      <div className="bg-slate-950 border border-slate-800 rounded-lg p-6 shadow-sm space-y-4">
-        <div>
-          <h2 className="text-lg font-bold text-slate-100 flex items-center space-x-2">
-            <GitFork className="w-5 h-5 text-teal-400" />
-            <span>Downstream Blast-Radius & Change-Impact Analyzer</span>
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Calculates transitive downstream dependents using reverse BFS graph traversal and maps AST caller-callee relationships.
-          </p>
-        </div>
+    <div className="max-w-4xl space-y-8">
+      <PageHeader title="What breaks if I change this?">
+        Pick a file or a function. RepoMind follows the imports backwards to find everything that relies on it, directly
+        or through other files.
+      </PageHeader>
 
+      <div className="space-y-4">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -70,156 +91,130 @@ export const ImpactView: React.FC<ImpactViewProps> = ({
           className="flex gap-2"
         >
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+            <Search className="w-4 h-4 text-subtle absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Enter module file (e.g. models.py) or function name..."
+              placeholder="models.py, or a function name"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-md pl-10 pr-4 py-2.5 text-sm font-mono text-slate-200 outline-none focus:border-teal-500 transition"
+              aria-label="File or function"
+              className={`${inputClass} pl-10 font-mono`}
             />
           </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-5 py-2.5 rounded-md bg-teal-600 hover:bg-teal-500 active:bg-teal-700 disabled:opacity-50 text-slate-100 font-medium text-sm transition shadow-md "
-          >
-            {loading ? 'Analyzing...' : 'Analyze Impact'}
-          </button>
+          <Button type="submit" variant="primary" disabled={loading || !target.trim()}>
+            {loading ? 'Checking…' : 'Check'}
+          </Button>
         </form>
 
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <span className="text-[11px] text-slate-500 font-medium">Quick Targets:</span>
-          {sampleTargets.map((st) => (
-            <button
-              key={st}
-              onClick={() => {
-                setTarget(st);
-                runImpact(st);
-              }}
-              className="px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-700 border border-slate-800 text-[11px] font-mono text-slate-300 transition"
-            >
-              {st}
-            </button>
-          ))}
-        </div>
+        {suggestions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-subtle mr-1">Most depended-on</span>
+            {suggestions.map((st) => (
+              <Chip
+                key={st}
+                mono
+                onClick={() => {
+                  setTarget(st);
+                  runImpact(st);
+                }}
+              >
+                {st}
+              </Chip>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Impact Result Cards */}
+      {error && <Notice tone="error">{error}</Notice>}
+
+      {loading && !impact && (
+        <p className="flex items-center gap-2 text-sm text-muted">
+          <Spinner className="w-4 h-4 text-accent" /> Following the imports…
+        </p>
+      )}
+
       {impact && (
-        <div className="space-y-5">
-          {/* Metrics summary */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-slate-950 border border-slate-800 rounded-md p-4">
-              <span className="text-xs text-slate-400 block">Transitive Blast Radius</span>
-              <span className="text-2xl font-bold text-rose-400 mt-1 block">
-                {impact.transitive_dependents.length} files
-              </span>
-              <span className="text-[11px] text-slate-500">Downstream modules affected</span>
-            </div>
-
-            <div className="bg-slate-950 border border-slate-800 rounded-md p-4">
-              <span className="text-xs text-slate-400 block">Direct Importers</span>
-              <span className="text-2xl font-bold text-amber-400 mt-1 block">
-                {impact.direct_importers.length} files
-              </span>
-              <span className="text-[11px] text-slate-500">Immediate dependencies</span>
-            </div>
-
-            <div className="bg-slate-950 border border-slate-800 rounded-md p-4">
-              <span className="text-xs text-slate-400 block">PageRank Centrality</span>
-              <span className="text-2xl font-bold text-teal-400 mt-1 block font-mono">
-                {impact.pagerank.toFixed(4)}
-              </span>
-              <span className="text-[11px] text-slate-500">Graph importance score</span>
-            </div>
-
-            <div className="bg-slate-950 border border-slate-800 rounded-md p-4">
-              <span className="text-xs text-slate-400 block">Max Complexity</span>
-              <span className="text-2xl font-bold text-emerald-400 mt-1 block">
-                CC {impact.complexity}
-              </span>
-              <span className="text-[11px] text-slate-500">Cyclomatic decision points</span>
-            </div>
-          </div>
-
-          {/* Transitive Downstream Dependents List */}
-          <div className="bg-slate-950 border border-slate-800 rounded-md p-5 space-y-3">
-            <div className="flex items-center space-x-2">
-              <ShieldAlert className="w-4 h-4 text-rose-400" />
-              <h3 className="text-sm font-bold text-slate-100">
-                Transitive Downstream Dependents ({impact.transitive_dependents.length})
-              </h3>
-            </div>
-            <p className="text-xs text-slate-400">
-              Modifying <code>{impact.target}</code> has a direct or indirect propagation risk to the following modules:
+        <article className={`space-y-10 transition-opacity ${loading ? 'opacity-50' : ''}`}>
+          <div className="border-l-4 border-accent pl-5 py-1">
+            <p className="font-serif text-2xl sm:text-[1.7rem] leading-snug text-ink">
+              {total === 0 ? (
+                <>
+                  Nothing else in the project depends on <code className="text-accent">{impact.target}</code>.
+                </>
+              ) : (
+                <>
+                  Changing <code className="text-accent">{impact.target}</code> could affect{' '}
+                  <span className="text-accent">
+                    {total} {total === 1 ? 'file' : 'files'}
+                  </span>
+                  .
+                </>
+              )}
             </p>
-
-            {impact.transitive_dependents.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1">
-                {impact.transitive_dependents.map((dep) => (
-                  <button
-                    key={dep}
-                    onClick={() => onNavigateToFile?.(dep)}
-                    className="flex items-center space-x-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 hover:border-teal-500 text-left text-xs font-mono text-slate-200 transition"
-                  >
-                    <ArrowRight className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                    <span className="truncate">{dep}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs text-slate-500 bg-slate-950 p-3 rounded-lg border border-slate-800">
-                Zero downstream dependents. This component can be safely modified without transitive side effects on internal modules.
-              </div>
-            )}
+            <p className="mt-2 text-sm text-muted">
+              {direct.length} import it directly, {indirect.length} through other files. Graph importance{' '}
+              <span className="font-mono">{impact.pagerank.toFixed(3)}</span>, highest complexity{' '}
+              <span className="font-mono">{impact.complexity}</span>.
+            </p>
           </div>
 
-          {/* AST Direct Callers */}
-          {impact.callers.length > 0 && (
-            <div className="bg-slate-950 border border-slate-800 rounded-md p-5 space-y-3">
-              <div className="flex items-center space-x-2">
-                <Code2 className="w-4 h-4 text-teal-400" />
-                <h3 className="text-sm font-bold text-slate-100">
-                  AST Caller Invocations ({impact.callers.length})
-                </h3>
-              </div>
-              <p className="text-xs text-slate-400">
-                Direct function and method calls extracted from AST Call nodes:
-              </p>
-
-              <div className="space-y-1.5 pt-1">
-                {impact.callers.map((c, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between bg-slate-950 p-2 rounded-lg border border-slate-800 text-xs font-mono"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <FileCode className="w-3.5 h-3.5 text-slate-500" />
-                      <span className="text-slate-300">{c.caller_file}</span>
-                      <span className="text-slate-500">::</span>
-                      <span className="text-teal-400 font-semibold">{c.caller_symbol}</span>
-                    </div>
-                    <span className="text-slate-500">Line {c.line_number}</span>
-                  </div>
-                ))}
-              </div>
+          {total > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <section>
+                <SectionTitle aside={String(direct.length)}>Import it directly</SectionTitle>
+                {direct.length > 0 ? (
+                  <FileList files={direct} onOpen={onNavigateToFile} />
+                ) : (
+                  <p className="text-sm text-muted">None.</p>
+                )}
+              </section>
+              <section>
+                <SectionTitle aside={String(indirect.length)}>Depend on it through other files</SectionTitle>
+                {indirect.length > 0 ? (
+                  <FileList files={indirect} onOpen={onNavigateToFile} />
+                ) : (
+                  <p className="text-sm text-muted">None.</p>
+                )}
+              </section>
             </div>
           )}
 
-          {/* Static Analysis Limitations Box */}
-          <div className="bg-slate-900 border border-slate-800 rounded-md p-4 space-y-2">
-            <h4 className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-              <span>Static Analysis Boundaries & Disclosures</span>
-            </h4>
-            <ul className="text-xs text-slate-400 space-y-1 pl-4 list-disc">
-              {impact.limitations.map((lim, idx) => (
-                <li key={idx}>{lim}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
+          {impact.callers.length > 0 && (
+            <section>
+              <SectionTitle aside={String(impact.callers.length)}>Places that call it</SectionTitle>
+              <ul className="divide-y divide-line border-y border-line">
+                {impact.callers.map((c, idx) => (
+                  <li key={idx} className="flex items-center justify-between gap-3 py-2 px-1 text-[13px] font-mono">
+                    <button
+                      onClick={() => onNavigateToFile?.(c.caller_file)}
+                      className="min-w-0 truncate text-left hover:text-accent"
+                    >
+                      <span className="text-muted">{c.caller_file}</span>
+                      <span className="text-subtle"> · </span>
+                      <span className="text-ink">{c.caller_symbol}</span>
+                    </button>
+                    <span className="text-xs text-subtle shrink-0">line {c.line_number}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {impact.limitations.length > 0 && (
+            <aside className="rounded-lg bg-sunk px-5 py-4 text-sm">
+              <p className="font-medium text-ink mb-2">Keep in mind</p>
+              <ul className="list-disc pl-5 space-y-1 text-muted marker:text-subtle">
+                {impact.limitations.map((lim, idx) => (
+                  <li key={idx}>{lim}</li>
+                ))}
+              </ul>
+            </aside>
+          )}
+        </article>
+      )}
+
+      {!impact && !loading && !error && suggestions.length === 0 && (
+        <Empty>Type a file or function name above to see what depends on it.</Empty>
       )}
     </div>
   );

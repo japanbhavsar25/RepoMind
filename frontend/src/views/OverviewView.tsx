@@ -1,99 +1,127 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, Code2, FileCode2, GitFork, HelpCircle, Network, Search } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import type { RepoInfo } from '../types';
 import type { TabType } from '../components/Navigation';
+import { Button, PageHeader } from '../components/ui';
 
 interface OverviewViewProps {
   repo?: RepoInfo;
   onNavigate: (tab: TabType) => void;
 }
 
+const STARTING_POINTS: Array<{ tab: TabType; title: string; body: string }> = [
+  {
+    tab: 'ask',
+    title: 'Ask a question',
+    body: 'Plain English is fine. You get an answer plus the exact lines it was based on.',
+  },
+  {
+    tab: 'graph',
+    title: 'See how it fits together',
+    body: 'Which files everything leans on, import loops, and files nothing uses.',
+  },
+  {
+    tab: 'impact',
+    title: 'Check before you change',
+    body: 'Pick a file or function and see everything that could break if you touch it.',
+  },
+];
+
 export const OverviewView: React.FC<OverviewViewProps> = ({ repo, onNavigate }) => {
   const stats = repo?.stats || { files: 0, functions: 0, classes: 0, imports: 0 };
 
   if (!repo) {
     return (
-      <div className="max-w-2xl space-y-4">
-        <h1 className="text-xl font-semibold text-slate-100">Repository overview</h1>
-        <p className="text-sm text-slate-400 leading-relaxed">
-          Select an indexed repository from the header, or add a GitHub repository to begin. RepoMind parses Python ASTs,
-          builds a dependency graph, and indexes symbols for search and grounded Q&amp;A.
-        </p>
-        <div className="flex gap-2">
-          <button onClick={() => onNavigate('search')} className="px-3 py-1.5 text-sm rounded border border-slate-700 hover:bg-slate-800 text-slate-200">
-            Search
-          </button>
-          <button onClick={() => onNavigate('ask')} className="px-3 py-1.5 text-sm rounded bg-teal-600 hover:bg-teal-500 text-slate-100">
-            Ask
-          </button>
-        </div>
+      <div className="max-w-2xl space-y-5">
+        <PageHeader title="Nothing to look at yet">
+          Pick a repository from the menu at the top, or add a public GitHub repo. RepoMind will read its Python files,
+          map how they connect, and then you can ask it questions.
+        </PageHeader>
+        <Button variant="primary" onClick={() => onNavigate('ask')}>
+          Go to Ask
+        </Button>
       </div>
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-        <div>
-          <p className="text-xs text-slate-400 uppercase tracking-wide">Repository</p>
-          <h1 className="text-xl font-semibold text-slate-100">{repo.name}</h1>
-          <p className="text-xs text-slate-400 font-mono mt-1">{repo.id}</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => onNavigate('ask')} className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-teal-600 hover:bg-teal-500 text-slate-100">
-            <HelpCircle className="w-3.5 h-3.5" /> Ask
-          </button>
-          <button onClick={() => onNavigate('search')} className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border border-slate-700 hover:bg-slate-800 text-slate-200">
-            <Search className="w-3.5 h-3.5" /> Search
-          </button>
-          <button onClick={() => onNavigate('graph')} className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border border-slate-700 hover:bg-slate-800 text-slate-200">
-            <Network className="w-3.5 h-3.5" /> Graph
-          </button>
-        </div>
-      </header>
+  const numbers: Array<[number, string]> = [
+    [stats.files, 'Python files'],
+    [stats.functions, 'functions'],
+    [stats.classes, 'classes'],
+    [stats.imports, 'import links'],
+  ];
 
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-slate-700 border border-slate-800 rounded overflow-hidden">
-        <Stat label="Files" value={stats.files} icon={<FileCode2 className="w-3.5 h-3.5" />} />
-        <Stat label="Functions" value={stats.functions} icon={<Code2 className="w-3.5 h-3.5" />} />
-        <Stat label="Classes" value={stats.classes} icon={<Code2 className="w-3.5 h-3.5" />} />
-        <Stat label="Import edges" value={stats.imports} icon={<GitFork className="w-3.5 h-3.5" />} />
+  return (
+    <div className="space-y-12">
+      <div className="space-y-6">
+        <PageHeader
+          title={repo.name}
+          actions={
+            <Button variant="primary" onClick={() => onNavigate('ask')}>
+              Ask about it <ArrowRight className="w-4 h-4" />
+            </Button>
+          }
+        >
+          Here's what RepoMind found after reading this repository.
+        </PageHeader>
+
+        <dl className="grid grid-cols-2 sm:grid-cols-4 gap-y-5 border-y border-line py-5">
+          {numbers.map(([value, label]) => (
+            <div key={label} className="sm:border-l sm:border-line sm:pl-6 sm:first:border-l-0 sm:first:pl-0">
+              <dt className="sr-only">{label}</dt>
+              <dd className="font-serif text-4xl text-ink tabular-nums">{value.toLocaleString()}</dd>
+              <dd className="mt-1 text-sm text-muted">{label}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+
+      <section>
+        <h2 className="font-serif text-xl text-ink mb-4">Where to start</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {STARTING_POINTS.map((p) => (
+            <button
+              key={p.tab}
+              onClick={() => onNavigate(p.tab)}
+              className="group text-left bg-surface border border-line rounded-lg p-5 hover:border-accent/60 transition"
+            >
+              <span className="flex items-center justify-between font-medium text-ink">
+                {p.title}
+                <ArrowRight className="w-4 h-4 text-subtle group-hover:text-accent group-hover:translate-x-0.5 transition" />
+              </span>
+              <span className="block mt-1.5 text-sm text-muted leading-relaxed">{p.body}</span>
+            </button>
+          ))}
+        </div>
       </section>
 
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-        <div className="border border-slate-800 rounded p-4 space-y-2">
-          <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Guarantees
-          </h2>
-          <ul className="text-xs text-slate-400 space-y-1.5 leading-relaxed">
-            <li>Every answer cites exact file:line ranges, checked against the parsed source.</li>
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8 text-sm leading-relaxed">
+        <div>
+          <h2 className="font-serif text-xl text-ink mb-3">What you can count on</h2>
+          <ul className="space-y-2.5 text-muted list-disc pl-5 marker:text-subtle">
             <li>
-              Parsing, indexing and search run on the RepoMind server. Only the few retrieved snippets are sent
-              to the LLM (Groq in this online demo, or a local Ollama model when self-hosted).
+              Answers point to specific <code className="text-ink">file:line</code> ranges, and each one is checked
+              against the real source before you see it.
             </li>
-            <li>Repository code is parsed with Python&apos;s AST — never executed.</li>
+            <li>
+              The heavy lifting happens on the RepoMind server. Only the handful of snippets relevant to your question
+              go to the language model (Groq here, or a local Ollama model if you run it yourself).
+            </li>
+            <li>Code is read, never run.</li>
           </ul>
         </div>
-        <div className="border border-slate-800 rounded p-4 space-y-2">
-          <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> Limits
-          </h2>
-          <ul className="text-xs text-slate-400 space-y-1.5 leading-relaxed">
-            <li>Static analysis only — dynamic calls and reflection are not inferred.</li>
-            <li>Python files only; other languages are skipped.</li>
-            <li>Abstains when retrieved chunks lack evidence.</li>
+        <div>
+          <h2 className="font-serif text-xl text-ink mb-3">What it can't do (yet)</h2>
+          <ul className="space-y-2.5 text-muted list-disc pl-5 marker:text-subtle">
+            <li>It only reads Python. Other languages are skipped.</li>
+            <li>
+              It works from the code as written, so anything decided at runtime (dynamic imports, reflection) is
+              invisible to it.
+            </li>
+            <li>If it can't find enough evidence, it says so instead of guessing.</li>
           </ul>
         </div>
       </section>
     </div>
   );
 };
-
-const Stat: React.FC<{ label: string; value: number; icon: React.ReactNode }> = ({ label, value, icon }) => (
-  <div className="bg-slate-950 p-3 flex items-center gap-3">
-    <span className="text-slate-500">{icon}</span>
-    <div>
-      <div className="text-lg font-semibold text-slate-100 tabular-nums">{value}</div>
-      <div className="text-xs text-slate-400">{label}</div>
-    </div>
-  </div>
-);

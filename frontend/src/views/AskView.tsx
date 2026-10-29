@@ -1,13 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Bot,
-  ExternalLink,
-  FileCode,
-  HelpCircle,
-  ShieldCheck,
-} from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { askQuestion, fetchSymbols } from '../api';
 import type { AskResponse, SymbolInfo } from '../types';
+import { Button, Chip, CodeBlock, Notice, PageHeader, Spinner, Tag, type Tone } from '../components/ui';
 
 const ECOMMERCE_SAMPLE_QUESTIONS = [
   'Where is password hashing implemented?',
@@ -42,6 +37,66 @@ function suggestionsFromSymbols(symbols: SymbolInfo[]): string[] {
   return picked.length > 0 ? picked : GENERIC_QUESTIONS;
 }
 
+// Matches citations like [pkg/module.py:12-40] or [module.py:7] inside an answer.
+const CITATION_RE = /\[([^\]\s]+\.py):(\d+)(?:-(\d+))?\]/g;
+
+/** Render answer text with clickable citations and `inline code`. */
+function renderAnswer(text: string, onOpen?: (path: string) => void): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(CITATION_RE)) {
+    const idx = m.index ?? 0;
+    out.push(...renderInlineCode(text.slice(last, idx), out.length));
+    const [, path, start, end] = m;
+    out.push(
+      <button
+        key={`c${idx}`}
+        type="button"
+        onClick={() => onOpen?.(path)}
+        className="font-mono text-[0.8em] px-1 py-px rounded bg-accent-soft text-accent hover:underline underline-offset-2 align-baseline"
+        title={`Open ${path}`}
+      >
+        {path.split('/').pop()}:{start}
+        {end && end !== start ? `–${end}` : ''}
+      </button>,
+    );
+    last = idx + m[0].length;
+  }
+  out.push(...renderInlineCode(text.slice(last), out.length));
+  return out;
+}
+
+/** Render **bold** and `inline code`, the only markdown the model reliably uses. */
+function renderInlineCode(text: string, keyBase: number): React.ReactNode[] {
+  return text.split(/(\*\*[^\n]+?\*\*)/g).map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') && part.length > 4 ? (
+      <strong key={`${keyBase}-b${i}`} className="font-semibold">
+        {renderCode(part.slice(2, -2).trim(), `${keyBase}-b${i}`)}
+      </strong>
+    ) : (
+      <React.Fragment key={`${keyBase}-t${i}`}>{renderCode(part, `${keyBase}-${i}`)}</React.Fragment>
+    ),
+  );
+}
+
+function renderCode(text: string, keyBase: string): React.ReactNode[] {
+  return text.split(/(`[^`\n]+`)/g).map((part, i) =>
+    part.startsWith('`') && part.endsWith('`') && part.length > 2 ? (
+      <code key={`${keyBase}-${i}`} className="px-1 py-px rounded bg-sunk text-ink">
+        {part.slice(1, -1)}
+      </code>
+    ) : (
+      part
+    ),
+  );
+}
+
+function verifiedTone(pct: number): Tone {
+  if (pct >= 90) return 'good';
+  if (pct >= 60) return 'warn';
+  return 'bad';
+}
+
 interface AskViewProps {
   repoId: string;
   onNavigateToFile?: (path: string) => void;
@@ -52,6 +107,7 @@ export const AskView: React.FC<AskViewProps> = ({ repoId, onNavigateToFile }) =>
   const [useLlm, setUseLlm] = useState(true); // Falls back to evidence-only when no LLM is configured
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<AskResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const [symbolQuestions, setSymbolQuestions] = useState<string[]>([]);
   const sampleQuestions = repoId === 'ecommerce_sample' ? ECOMMERCE_SAMPLE_QUESTIONS : symbolQuestions;
@@ -71,167 +127,157 @@ export const AskView: React.FC<AskViewProps> = ({ repoId, onNavigateToFile }) =>
     const q = queryText || question;
     if (!q.trim()) return;
     setLoading(true);
+    setError(null);
     try {
       const res = await askQuestion(q, repoId, useLlm);
       setResponse(res);
     } catch (err) {
       console.error('Ask error:', err);
+      setError(err instanceof Error ? err.message : 'Something went wrong while answering.');
     } finally {
       setLoading(false);
     }
   };
 
+  const verifiedPct = response ? Math.round(response.citation_confidence * 100) : 0;
+  const tokens =
+    response?.prompt_tokens != null ? response.prompt_tokens + (response.completion_tokens ?? 0) : null;
+
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      {/* Header & Ask Box */}
-      <div className="bg-slate-950 border border-slate-800 rounded-lg p-6 shadow-sm space-y-4">
-        <div>
-          <h2 className="text-lg font-bold text-slate-100 flex items-center space-x-2">
-            <Bot className="w-5 h-5 text-teal-400" />
-            <span>Grounded Codebase Question Answering</span>
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Answers are strictly grounded in retrieved AST chunks and verified against SQLite source coordinates.
-          </p>
-        </div>
+    <div className="max-w-3xl space-y-8">
+      <PageHeader title="Ask about this code">
+        RepoMind finds the functions and classes related to your question, answers using only those, and then checks
+        every line reference it gives you.
+      </PageHeader>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleAsk();
-          }}
-          className="space-y-3"
-        >
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Ask a question about the repository..."
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-md pl-4 pr-24 py-3 text-sm text-slate-200 outline-none focus:border-teal-500 transition"
-            />
-            <button
-              type="submit"
-              disabled={loading}
-              className="absolute right-2 top-2 px-4 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 active:bg-teal-700 disabled:opacity-50 text-slate-100 font-medium text-xs transition"
-            >
-              {loading ? 'Analyzing...' : 'Ask'}
-            </button>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-            {/* Quick Sample Questions */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] text-slate-500 font-medium">Try:</span>
-              {sampleQuestions.map((sq) => (
-                <button
-                  key={sq}
-                  type="button"
-                  onClick={() => {
-                    setQuestion(sq);
-                    handleAsk(sq);
-                  }}
-                  className="px-2 py-0.5 rounded bg-slate-950 hover:bg-slate-700 border border-slate-800 text-[11px] text-slate-400 transition"
-                >
-                  {sq}
-                </button>
-              ))}
-            </div>
-
-            {/* Local LLM Toggle */}
-            <label className="flex items-center space-x-2 cursor-pointer select-none">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleAsk();
+        }}
+        className="space-y-4"
+      >
+        <div className="bg-surface border border-line-strong rounded-lg focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20 transition">
+          <textarea
+            rows={2}
+            placeholder="e.g. Where do we check that a user is allowed to do this?"
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleAsk();
+              }
+            }}
+            aria-label="Your question"
+            className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] text-ink placeholder:text-subtle outline-none"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-3 px-3 pb-3 pt-1">
+            <label className="flex items-center gap-2 text-xs text-muted cursor-pointer select-none pl-1">
               <input
                 type="checkbox"
                 checked={useLlm}
                 onChange={(e) => setUseLlm(e.target.checked)}
-                className="w-3.5 h-3.5 text-teal-400 rounded bg-slate-950 border-slate-700 focus:ring-0 cursor-pointer"
+                className="w-3.5 h-3.5 accent-[var(--accent)] cursor-pointer"
               />
-              <span className="text-xs text-slate-400">
-                Generate AI answer <span className="text-slate-500">(Groq or local Ollama)</span>
-              </span>
+              Write an answer (otherwise just show the matching code)
             </label>
+            <Button type="submit" variant="primary" disabled={loading || !question.trim()}>
+              {loading ? (
+                <>
+                  <Spinner className="w-3.5 h-3.5" /> Reading the code…
+                </>
+              ) : (
+                'Ask'
+              )}
+            </Button>
           </div>
-        </form>
-      </div>
+        </div>
 
-      {/* Answer & Evidence Display */}
+        {sampleQuestions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-subtle mr-1">Not sure what to ask? Try</span>
+            {sampleQuestions.map((sq) => (
+              <Chip
+                key={sq}
+                onClick={() => {
+                  setQuestion(sq);
+                  handleAsk(sq);
+                }}
+              >
+                {sq}
+              </Chip>
+            ))}
+          </div>
+        )}
+      </form>
+
+      {error && <Notice tone="error">{error}</Notice>}
+
       {response && (
-        <div className="space-y-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-lg p-6 space-y-4 shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center space-x-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-semibold text-slate-200">
-                  Groundedness & Citation Confidence:
-                </span>
-                <span className="px-2 py-0.5 rounded text-xs font-bold bg-emerald-950/40 text-emerald-300 border border-emerald-800/40">
-                  {Math.round(response.citation_confidence * 100)}% Verified
-                </span>
-              </div>
-
-              <span className="text-xs text-slate-500 font-mono">
-                Model: {response.model_used}
+        <article className="space-y-8">
+          <div className="bg-surface border border-line rounded-lg p-6 sm:p-7">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-5">
+              <Tag tone={verifiedTone(verifiedPct)}>{verifiedPct}% of citations verified</Tag>
+              <span className="text-xs text-subtle font-mono">
+                {response.model_used}
                 {response.latency_ms != null && ` · ${(response.latency_ms / 1000).toFixed(1)}s`}
-                {response.prompt_tokens != null &&
-                  ` · ${response.prompt_tokens + (response.completion_tokens ?? 0)} tokens`}
+                {tokens != null && ` · ${tokens.toLocaleString()} tokens`}
               </span>
             </div>
-
-            <div className="text-sm text-slate-200 leading-relaxed font-sans whitespace-pre-wrap">
-              {response.answer}
+            <div className="text-[15px] text-ink leading-[1.75] whitespace-pre-wrap">
+              {renderAnswer(response.answer, onNavigateToFile)}
             </div>
           </div>
 
-          {/* Citations & Source Evidence Cards */}
           {response.citations.length > 0 && (
-            <div className="space-y-3">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center space-x-1.5 px-1">
-                <FileCode className="w-3.5 h-3.5 text-teal-400" />
-                <span>Supporting Source Evidence ({response.citations.length})</span>
-              </h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <section>
+              <h2 className="font-serif text-xl text-ink mb-1">Where this comes from</h2>
+              <p className="text-sm text-muted mb-4">
+                The {response.citations.length === 1 ? 'snippet' : `${response.citations.length} snippets`} the answer
+                is based on.
+              </p>
+              <ol className="space-y-4">
                 {response.citations.map((cite, idx) => (
-                  <div
-                    key={idx}
-                    className="bg-slate-950 border border-slate-800 rounded-md p-3.5 space-y-2 hover:border-slate-700 transition"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-1.5 truncate">
-                        <FileCode className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                        <span className="text-xs font-mono font-medium text-slate-200 truncate">
-                          {cite.file_path}:{cite.line_start}-{cite.line_end}
+                  <li key={idx} className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-mono text-ink truncate">
+                        <span className="text-subtle mr-2">{idx + 1}.</span>
+                        {cite.file_path}
+                        <span className="text-subtle">
+                          :{cite.line_start}–{cite.line_end}
                         </span>
-                      </div>
-
+                      </span>
                       <button
                         onClick={() => onNavigateToFile?.(cite.file_path)}
-                        className="flex items-center space-x-1 text-[11px] text-teal-400 hover:text-teal-300 font-medium transition"
+                        className="shrink-0 inline-flex items-center gap-0.5 text-xs text-accent hover:underline underline-offset-2"
                       >
-                        <span>Inspect</span>
-                        <ExternalLink className="w-3 h-3" />
+                        Open file <ArrowUpRight className="w-3 h-3" />
                       </button>
                     </div>
-
-                    <pre className="bg-[#0a0d14] border border-slate-800 rounded p-2 text-[11px] font-mono text-slate-500 overflow-x-auto whitespace-pre-wrap max-h-32">
-                      {cite.snippet}
-                    </pre>
-                  </div>
+                    <CodeBlock className="max-h-40 overflow-y-auto">{cite.snippet}</CodeBlock>
+                  </li>
                 ))}
-              </div>
-            </div>
+              </ol>
+            </section>
           )}
-        </div>
+        </article>
       )}
 
-      {!response && !loading && (
-        <div className="bg-slate-900 border border-slate-800 rounded-lg p-8 text-center space-y-2">
-          <HelpCircle className="w-8 h-8 text-slate-500 mx-auto" />
-          <h3 className="text-sm font-semibold text-slate-300">Ask a Question with Verifiable Evidence</h3>
-          <p className="text-xs text-slate-500 max-w-md mx-auto">
-            RepoMind indexes source files into symbol chunks, retrieves relevant context using weighted RRF, and verifies exact line-number citations.
-          </p>
-        </div>
+      {!response && !loading && !error && (
+        <ol className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-4 border-t border-line text-sm">
+          {[
+            ['Find', 'It searches by name and by meaning to pull the most relevant functions and classes.'],
+            ['Answer', 'The model is only shown those snippets and is told to cite each claim.'],
+            ['Check', 'Every file:line it cites is matched against the parsed source. You see the score.'],
+          ].map(([title, body], i) => (
+            <li key={title}>
+              <span className="font-serif text-2xl text-accent">{i + 1}</span>
+              <p className="mt-1 font-medium text-ink">{title}</p>
+              <p className="mt-1 text-muted leading-relaxed">{body}</p>
+            </li>
+          ))}
+        </ol>
       )}
     </div>
   );

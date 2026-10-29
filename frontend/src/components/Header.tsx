@@ -1,6 +1,7 @@
-import React from 'react';
-import { Database, Plus, RefreshCw, ShieldCheck } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ChevronDown, Moon, Plus, RefreshCw, Sun } from 'lucide-react';
 import type { RepoInfo } from '../types';
+import { Button } from './ui';
 
 interface HeaderProps {
   repos: RepoInfo[];
@@ -11,6 +12,49 @@ interface HeaderProps {
   indexing: boolean;
 }
 
+type Theme = 'light' | 'dark';
+
+function currentTheme(): Theme {
+  const set = document.documentElement.dataset.theme;
+  if (set === 'light' || set === 'dark') return set;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+const ThemeToggle: React.FC = () => {
+  const [theme, setTheme] = useState<Theme>(currentTheme);
+
+  // Follow the OS theme until the person picks one themselves
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => setTheme(currentTheme());
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  const toggle = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    setTheme(next);
+    try {
+      localStorage.setItem('repomind-theme', next);
+    } catch {
+      // Storage can be blocked; the toggle still works for this visit.
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      className="p-2 rounded-md text-muted hover:text-ink hover:bg-sunk transition"
+      aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+      title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+    >
+      {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+    </button>
+  );
+};
+
 export const Header: React.FC<HeaderProps> = ({
   repos,
   activeRepoId,
@@ -20,63 +64,49 @@ export const Header: React.FC<HeaderProps> = ({
   indexing,
 }) => {
   return (
-    <header className="border-b border-slate-800 bg-slate-950 sticky top-0 z-50 px-4 sm:px-6 py-3">
-      {/* Wraps onto two rows on phones: brand on top, repo picker + actions below */}
-      <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-        {/* Brand */}
-        <div className="flex items-center space-x-3">
-          <div className="h-9 w-9 rounded-md bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-200">
-            <Database className="w-4 h-4" />
-          </div>
-          <div>
-            <span className="font-semibold text-base text-slate-100 tracking-tight">RepoMind</span>
-            <p className="hidden sm:block text-xs text-slate-500">Code intelligence</p>
-          </div>
+    <header className="bg-paper px-4 sm:px-6 pt-5 pb-3">
+      <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <div className="flex items-baseline gap-3">
+          <span className="font-serif text-2xl font-semibold tracking-tight text-ink">
+            RepoMind<span className="text-accent">.</span>
+          </span>
+          <span className="hidden md:inline text-sm text-subtle">Read any Python repo, with receipts.</span>
         </div>
 
-        {/* Repository selector & actions */}
-        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto min-w-0">
-          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex-1 sm:flex-none min-w-0">
-            <Database className="w-4 h-4 text-slate-400 flex-shrink-0" />
+        <div className="flex items-center gap-2 w-full sm:w-auto min-w-0">
+          <label className="relative flex-1 sm:flex-none min-w-0">
+            <span className="sr-only">Repository</span>
             <select
               value={activeRepoId}
               onChange={(e) => onSelectRepo(e.target.value)}
-              aria-label="Repository"
-              className="bg-transparent text-sm text-slate-200 outline-none cursor-pointer pr-2 font-medium w-full sm:max-w-xs truncate"
+              className="appearance-none w-full sm:w-72 truncate bg-surface border border-line-strong rounded-md pl-3 pr-8 py-2 text-sm font-medium text-ink outline-none focus:border-accent cursor-pointer"
             >
               {repos.map((r) => (
-                <option key={r.id} value={r.id} className="bg-slate-900 text-slate-200">
-                  {r.name} {r.is_sample ? '(Sample)' : ''}
+                <option key={r.id} value={r.id}>
+                  {r.name}
                 </option>
               ))}
             </select>
-          </div>
+            <ChevronDown className="w-4 h-4 text-subtle absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </label>
 
-          <button
-            onClick={onOpenAddRepo}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-700 border border-slate-800 hover:border-slate-700 text-sm font-medium text-slate-200 hover:text-slate-100 transition shadow-sm flex-shrink-0"
-            title="Add a repository"
-            aria-label="Add repository"
-          >
-            <Plus className="w-4 h-4 text-teal-400" />
-            <span className="hidden sm:inline">Add Repo</span>
-          </button>
+          <Button onClick={onOpenAddRepo} aria-label="Add a repository" title="Add a repository">
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Add repo</span>
+          </Button>
 
-          <button
+          <Button
+            variant="quiet"
             onClick={onTriggerIndex}
             disabled={indexing}
-            className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 active:bg-teal-700 disabled:opacity-50 text-sm font-medium text-slate-100 transition shadow-sm flex-shrink-0"
-            title="Re-index the selected repository"
-            aria-label={indexing ? 'Indexing' : 'Index repository'}
+            title="Parse the selected repository again"
+            aria-label={indexing ? 'Re-indexing' : 'Re-index repository'}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${indexing ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">{indexing ? 'Indexing...' : 'Index Repo'}</span>
-          </button>
+            <RefreshCw className={`w-4 h-4 ${indexing ? 'animate-spin' : ''}`} />
+            <span className="hidden lg:inline">{indexing ? 'Re-indexing…' : 'Re-index'}</span>
+          </Button>
 
-          <div className="hidden lg:flex items-center space-x-1 px-2.5 py-1 rounded-md bg-emerald-950/40 border border-emerald-800/40 text-emerald-400 text-xs font-medium">
-            <ShieldCheck className="w-3.5 h-3.5 mr-1" />
-            <span>Cited answers</span>
-          </div>
+          <ThemeToggle />
         </div>
       </div>
     </header>

@@ -1,28 +1,41 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Award,
-  CheckCircle2,
-  Play,
-  Sparkles,
-} from 'lucide-react';
 import { fetchEvaluation } from '../api';
-import type { EvaluationResponse } from '../types';
+import type { EvaluationResponse, MetricScores } from '../types';
+import { Button, Card, Loading, PageHeader, Spinner } from '../components/ui';
 
 interface EvaluationViewProps {
   repoId: string;
 }
 
+type Strategy = 'dense' | 'sparse' | 'hybrid';
+
+const STRATEGIES: Array<{ key: Strategy; name: string; how: string }> = [
+  { key: 'dense', name: 'By meaning', how: 'Embeddings (all-MiniLM-L6-v2 in ChromaDB)' },
+  { key: 'sparse', name: 'By keyword', how: 'BM25 full-text search in SQLite' },
+  { key: 'hybrid', name: 'Both, combined', how: 'Reciprocal Rank Fusion of the two (what RepoMind uses)' },
+];
+
+const METRICS: Array<{ key: keyof MetricScores; label: string; hint: string; format: (v: number) => string; lowerIsBetter?: boolean }> = [
+  { key: 'hit_rate_at_1', label: 'Right file first', hint: 'Hit rate @1', format: (v) => `${Math.round(v * 100)}%` },
+  { key: 'hit_rate_at_5', label: 'Right file in top 5', hint: 'Hit rate @5', format: (v) => `${Math.round(v * 100)}%` },
+  { key: 'mrr_at_5', label: 'Rank quality', hint: 'MRR @5, 1.0 is perfect', format: (v) => v.toFixed(2) },
+  { key: 'avg_latency_ms', label: 'Avg time', hint: 'Per query', format: (v) => `${v.toFixed(0)} ms`, lowerIsBetter: true },
+];
+
 export const EvaluationView: React.FC<EvaluationViewProps> = ({ repoId }) => {
   const [data, setData] = useState<EvaluationResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const runBenchmark = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetchEvaluation(repoId, 12);
       setData(res);
     } catch (err) {
       console.error('Failed to run benchmark:', err);
+      setError(err instanceof Error ? err.message : 'The benchmark failed to run.');
     } finally {
       setLoading(false);
     }
@@ -32,203 +45,110 @@ export const EvaluationView: React.FC<EvaluationViewProps> = ({ repoId }) => {
     runBenchmark();
   }, [repoId]);
 
+  const best = (metric: (typeof METRICS)[number]) => {
+    if (!data) return null;
+    const values = STRATEGIES.map((s) => data[s.key][metric.key]);
+    return metric.lowerIsBetter ? Math.min(...values) : Math.max(...values);
+  };
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Header Banner */}
-      <div className="bg-slate-950 border border-slate-800 rounded-lg p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-teal-500/10 border border-teal-800/40 text-teal-300 text-xs font-semibold mb-2">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Quantitative Information Retrieval Benchmark</span>
+    <div className="max-w-4xl space-y-10">
+      <PageHeader
+        title="How good is the search, really?"
+        actions={
+          <Button onClick={runBenchmark} disabled={loading}>
+            {loading ? (
+              <>
+                <Spinner className="w-3.5 h-3.5" /> Running…
+              </>
+            ) : (
+              'Run it again'
+            )}
+          </Button>
+        }
+      >
+        Each test question has a known right answer: hand-written ones where they exist, topped up with &ldquo;where is
+        X implemented?&rdquo; for this repo's documented functions. Then each search method is checked on whether it
+        brings back the right file.
+        {data && ` This run used ${data.dataset_size} questions.`}
+      </PageHeader>
+
+      {error && <p className="text-sm text-bad">{error}</p>}
+
+      {!data && loading && <Loading>Running the benchmark…</Loading>}
+
+      {data && (
+        <Card className={`overflow-hidden transition-opacity ${loading ? 'opacity-50' : ''}`}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-line">
+                  <th className="py-3 px-5 font-medium text-xs text-subtle">Search method</th>
+                  {METRICS.map((m) => (
+                    <th key={m.key} className="py-3 px-4 text-right whitespace-nowrap">
+                      <span className="block text-xs font-medium text-ink">{m.label}</span>
+                      <span className="block text-[11px] font-normal text-subtle">{m.hint}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {STRATEGIES.map((s) => (
+                  <tr key={s.key} className={s.key === 'hybrid' ? 'bg-accent-soft/40' : ''}>
+                    <td className="py-3.5 px-5">
+                      <span className="block font-medium text-ink">{s.name}</span>
+                      <span className="block text-xs text-subtle">{s.how}</span>
+                    </td>
+                    {METRICS.map((m) => {
+                      const v = data[s.key][m.key];
+                      const isBest = v === best(m);
+                      return (
+                        <td
+                          key={m.key}
+                          className={`py-3.5 px-4 text-right font-mono tabular-nums ${
+                            isBest ? 'text-ink font-semibold' : 'text-muted'
+                          }`}
+                        >
+                          {m.format(v)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <h2 className="text-xl font-bold text-slate-100">Dense vs. Sparse vs. Hybrid RRF Retrieval</h2>
-          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Measures exact-hit accuracy and query latency across three retrieval strategies on the indexed codebase.
+          <p className="px-5 py-2.5 border-t border-line text-xs text-subtle">Bold marks the best result in each column.</p>
+        </Card>
+      )}
+
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6 text-sm text-muted leading-relaxed">
+        <div className="space-y-3">
+          <h2 className="font-serif text-xl text-ink">Why combine two kinds of search?</h2>
+          <p>
+            Keyword search is great when you know the name: <code className="text-ink">calculate_tax</code> is either
+            there or it isn't. It falls apart on questions like &ldquo;how is billing handled?&rdquo; when the code never
+            uses the word &ldquo;billing&rdquo;.
+          </p>
+          <p>
+            Embedding search is the opposite. It gets the gist of a question but can blur exact names together. Neither
+            wins everywhere, so RepoMind runs both and merges the rankings.
           </p>
         </div>
-
-        <button
-          onClick={runBenchmark}
-          disabled={loading}
-          className="flex items-center space-x-2 px-5 py-2.5 rounded-md bg-teal-600 hover:bg-teal-500 active:bg-teal-700 disabled:opacity-50 text-slate-100 font-medium text-xs transition shadow-md  shrink-0"
-        >
-          <Play className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          <span>{loading ? 'Evaluating...' : 'Run Benchmark'}</span>
-        </button>
-      </div>
-
-      {/* Benchmark Metric Cards Comparison */}
-      {data && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Dense Card */}
-          <div className="bg-slate-950 border border-slate-800 rounded-md p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Dense-Only</span>
-              <span className="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">ChromaDB</span>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <span className="text-xs text-slate-500 block">Hit Rate @ 1</span>
-                <span className="text-xl font-bold text-slate-200">
-                  {(data.dense.hit_rate_at_1 * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div>
-                <span className="text-xs text-slate-500 block">Hit Rate @ 5</span>
-                <span className="text-xl font-bold text-slate-200">
-                  {(data.dense.hit_rate_at_5 * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-                <span className="text-xs text-slate-400">MRR @ 5</span>
-                <span className="text-xs font-mono font-bold text-slate-200">{data.dense.mrr_at_5.toFixed(3)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400">Avg Latency</span>
-                <span className="text-xs font-mono text-slate-400">{data.dense.avg_latency_ms.toFixed(1)} ms</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Sparse Card */}
-          <div className="bg-slate-950 border border-slate-800 rounded-md p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sparse-Only</span>
-              <span className="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">FTS5 / BM25</span>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <span className="text-xs text-slate-500 block">Hit Rate @ 1</span>
-                <span className="text-xl font-bold text-slate-200">
-                  {(data.sparse.hit_rate_at_1 * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div>
-                <span className="text-xs text-slate-500 block">Hit Rate @ 5</span>
-                <span className="text-xl font-bold text-slate-200">
-                  {(data.sparse.hit_rate_at_5 * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-                <span className="text-xs text-slate-400">MRR @ 5</span>
-                <span className="text-xs font-mono font-bold text-slate-200">{data.sparse.mrr_at_5.toFixed(3)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400">Avg Latency</span>
-                <span className="text-xs font-mono text-slate-400">{data.sparse.avg_latency_ms.toFixed(1)} ms</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Hybrid RRF Card (Winner) */}
-          <div className="bg-slate-900 border border-teal-600/40 rounded-md p-5 space-y-4 relative">
-            <div className="absolute -top-3 right-4 px-2.5 py-0.5 rounded-full bg-teal-600 text-[10px] font-bold text-slate-100 uppercase tracking-wider shadow">
-              Winner [BEST]
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-teal-300 uppercase tracking-wider">Hybrid RRF</span>
-              <span className="text-[11px] px-2 py-0.5 rounded bg-teal-950/40 border border-teal-800/40 text-teal-300 font-mono">
-                k=60 Fused
-              </span>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <span className="text-xs text-teal-400/80 block">Hit Rate @ 1</span>
-                <span className="text-2xl font-extrabold text-emerald-400">
-                  {(data.hybrid.hit_rate_at_1 * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div>
-                <span className="text-xs text-teal-400/80 block">Hit Rate @ 5</span>
-                <span className="text-2xl font-extrabold text-emerald-400">
-                  {(data.hybrid.hit_rate_at_5 * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-                <span className="text-xs text-slate-300 font-medium">MRR @ 5</span>
-                <span className="text-xs font-mono font-bold text-teal-300">{data.hybrid.mrr_at_5.toFixed(3)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-400">Avg Latency</span>
-                <span className="text-xs font-mono text-amber-300">{data.hybrid.avg_latency_ms.toFixed(1)} ms</span>
-              </div>
-            </div>
-          </div>
+        <div className="space-y-3">
+          <h2 className="font-serif text-xl text-ink">How the merge works</h2>
+          <p>
+            Each result gets points from each list based on its position, so something ranked well by both rises to the
+            top. The 60 keeps any single list from dominating.
+          </p>
+          <p className="rounded-md bg-sunk px-4 py-3 font-mono text-[13px] text-ink">
+            score(d) = &sum; weight / (60 + rank(d))
+          </p>
+          <p className="text-xs text-subtle">
+            A small benchmark like this is a regression check, not a general score.
+          </p>
         </div>
-      )}
-
-      {/* Detailed Comparison Table */}
-      {data && (
-        <div className="bg-slate-950 border border-slate-800 rounded-md overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-800 bg-slate-900 flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-100 uppercase tracking-wider">
-              Strategy Scorecard ({data.dataset_size} benchmark queries)
-            </span>
-          </div>
-
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-slate-800 bg-slate-950 text-slate-400 text-[11px] font-semibold uppercase">
-                <th className="py-3 px-4">Retrieval Strategy</th>
-                <th className="py-3 px-4 text-right">Hit Rate @ 1</th>
-                <th className="py-3 px-4 text-right">Hit Rate @ 5</th>
-                <th className="py-3 px-4 text-right">MRR (Top 5)</th>
-                <th className="py-3 px-4 text-right">Avg Latency</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800 font-mono">
-              <tr className="hover:bg-slate-700/30">
-                <td className="py-3 px-4 text-slate-300 font-sans">Dense-Only (ChromaDB all-MiniLM-L6-v2)</td>
-                <td className="py-3 px-4 text-right">{(data.dense.hit_rate_at_1 * 100).toFixed(1)}%</td>
-                <td className="py-3 px-4 text-right">{(data.dense.hit_rate_at_5 * 100).toFixed(1)}%</td>
-                <td className="py-3 px-4 text-right">{data.dense.mrr_at_5.toFixed(3)}</td>
-                <td className="py-3 px-4 text-right text-slate-400">{data.dense.avg_latency_ms.toFixed(1)} ms</td>
-              </tr>
-              <tr className="hover:bg-slate-700/30">
-                <td className="py-3 px-4 text-slate-300 font-sans">Sparse-Only (SQLite FTS5 BM25)</td>
-                <td className="py-3 px-4 text-right">{(data.sparse.hit_rate_at_1 * 100).toFixed(1)}%</td>
-                <td className="py-3 px-4 text-right">{(data.sparse.hit_rate_at_5 * 100).toFixed(1)}%</td>
-                <td className="py-3 px-4 text-right">{data.sparse.mrr_at_5.toFixed(3)}</td>
-                <td className="py-3 px-4 text-right text-slate-400">{data.sparse.avg_latency_ms.toFixed(1)} ms</td>
-              </tr>
-              <tr className="bg-teal-950/20 font-bold hover:bg-teal-950/40">
-                <td className="py-3 px-4 text-teal-300 font-sans flex items-center space-x-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>RepoMind Hybrid RRF (k=60 Weighted)</span>
-                </td>
-                <td className="py-3 px-4 text-right text-emerald-400">{(data.hybrid.hit_rate_at_1 * 100).toFixed(1)}%</td>
-                <td className="py-3 px-4 text-right text-emerald-400">{(data.hybrid.hit_rate_at_5 * 100).toFixed(1)}%</td>
-                <td className="py-3 px-4 text-right text-teal-300">{data.hybrid.mrr_at_5.toFixed(3)}</td>
-                <td className="py-3 px-4 text-right text-amber-300">{data.hybrid.avg_latency_ms.toFixed(1)} ms</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Engineering Takeaways Box */}
-      <div className="bg-slate-900 border border-slate-800 rounded-md p-5 space-y-3">
-        <h3 className="text-sm font-bold text-slate-100 flex items-center space-x-2">
-          <Award className="w-4 h-4 text-teal-400" />
-          <span>Why Reciprocal Rank Fusion (RRF) Excels for Codebases</span>
-        </h3>
-        <p className="text-xs text-slate-300 leading-relaxed">
-          Code search poses unique challenges: queries with exact identifiers (e.g. <code>calculate_tax</code> or <code>User.is_admin</code>)
-          suffer from semantic distortion in dense vector embeddings, while natural-language concept questions (e.g. &quot;how is billing handled?&quot;)
-          fail in lexical sparse search due to the vocabulary mismatch problem.
-        </p>
-        <p className="text-xs text-slate-300 leading-relaxed">
-          RepoMind solves this by dynamically detecting query intent, scoring candidates across both SQLite FTS5 disk-based BM25
-          and dense cosine vector similarity, and fusing them via Reciprocal Rank Fusion:
-        </p>
-        <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 font-mono text-[11px] text-teal-300 text-center">
-          RRF_Score(d) = &sum; [ weight_r / (60 + rank_r(d)) ]
-        </div>
-      </div>
+      </section>
     </div>
   );
 };

@@ -1,15 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import {
-  AlertTriangle,
-  Award,
-  CheckCircle,
-  ExternalLink,
-  GitFork,
-  Network,
-  Share2,
-} from 'lucide-react';
 import { fetchGraph } from '../api';
 import type { GraphDataResponse } from '../types';
+import { Card, Loading, PageHeader, Segmented, SectionTitle, Tag } from '../components/ui';
 
 interface GraphViewProps {
   repoId: string;
@@ -19,7 +11,7 @@ interface GraphViewProps {
 export const GraphView: React.FC<GraphViewProps> = ({ repoId, onSelectTarget }) => {
   const [data, setData] = useState<GraphDataResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filterType, setFilterType] = useState<'all' | 'internal' | 'external'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'internal' | 'external'>('internal');
 
   useEffect(() => {
     let isMounted = true;
@@ -45,215 +37,146 @@ export const GraphView: React.FC<GraphViewProps> = ({ repoId, onSelectTarget }) 
   }) || [];
 
   if (loading && !data) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-slate-400">
-        <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mb-3" />
-        <p className="text-sm font-medium">Analyzing dependency graph & calculating PageRank...</p>
-      </div>
-    );
+    return <Loading>Working out which files depend on which…</Loading>;
   }
 
+  const leaders = data?.pagerank_leaderboard ?? [];
+  const topScore = leaders[0]?.score || 1;
+  const cycles = data?.cycles ?? [];
+  const orphans = data?.orphans ?? [];
+
   return (
-    <div className="space-y-6">
-      {/* Overview Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="bg-slate-950 border border-slate-800 rounded-md p-4">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Total Nodes</span>
-            <Network className="w-4 h-4 text-teal-400" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-100">{data?.nodes.length || 0}</div>
-          <p className="text-xs text-slate-500 mt-1">Modules & libraries</p>
-        </div>
+    <div className="space-y-10">
+      <PageHeader title="How the files depend on each other">
+        Built from every <code className="text-ink">import</code> statement. {data?.nodes.length ?? 0} modules and
+        libraries, connected by {data?.edges.length ?? 0} imports.
+      </PageHeader>
 
-        <div className="bg-slate-950 border border-slate-800 rounded-md p-4">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Import Edges</span>
-            <GitFork className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-100">{data?.edges.length || 0}</div>
-          <p className="text-xs text-slate-500 mt-1">Directed dependencies</p>
-        </div>
-
-        <div className="bg-slate-950 border border-slate-800 rounded-md p-4">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Circular Cycles</span>
-            <Share2 className="w-4 h-4 text-rose-400" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-100">{data?.cycles.length || 0}</div>
-          <p className="text-xs text-slate-500 mt-1">Mutual import loops</p>
-        </div>
-
-        <div className="bg-slate-950 border border-slate-800 rounded-md p-4">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Orphan Files</span>
-            <AlertTriangle className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-100">{data?.orphans.length || 0}</div>
-          <p className="text-xs text-slate-500 mt-1">Isolated components</p>
-        </div>
-      </div>
-
-      {/* PageRank Leaderboard & Cycles Alert */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* PageRank Leaderboard */}
-        <div className="bg-slate-950 border border-slate-800 rounded-md p-5 space-y-3">
-          <div className="flex items-center space-x-2">
-            <Award className="w-4 h-4 text-amber-400" />
-            <h3 className="text-sm font-bold text-slate-100">PageRank Criticality Leaderboard</h3>
-          </div>
-          <p className="text-xs text-slate-400">
-            Files with high PageRank scores represent core architectural dependencies relied on by other modules.
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
+        <section className="lg:col-span-3">
+          <SectionTitle aside="ranked by PageRank">The files everything leans on</SectionTitle>
+          <p className="text-sm text-muted mb-4 leading-relaxed">
+            The more (and more important) files import something, the higher it ranks. Changes here travel furthest.
+            Click one to see what it would affect.
           </p>
-
-          <div className="space-y-2 pt-1">
-            {data?.pagerank_leaderboard.map((item, idx) => (
-              <div
-                key={item.file}
-                onClick={() => onSelectTarget?.(item.file)}
-                className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800 hover:border-teal-400 cursor-pointer transition text-xs"
-              >
-                <div className="flex items-center space-x-2">
-                  <span className="w-5 text-center font-bold text-slate-500">#{idx + 1}</span>
-                  <span className="font-mono text-slate-200">{item.file}</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className="font-mono text-teal-400 font-semibold">{item.score.toFixed(4)}</span>
-                  <ExternalLink className="w-3 h-3 text-slate-500" />
-                </div>
-              </div>
+          <ol className="space-y-1">
+            {leaders.map((item, idx) => (
+              <li key={item.file}>
+                <button
+                  onClick={() => onSelectTarget?.(item.file)}
+                  className="group w-full grid grid-cols-[1.5rem_1fr_auto] items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-surface transition"
+                >
+                  <span className="text-xs text-subtle tabular-nums">{idx + 1}</span>
+                  <span className="min-w-0">
+                    <span className="block font-mono text-[13px] text-ink truncate group-hover:text-accent">
+                      {item.file}
+                    </span>
+                    <span className="mt-1.5 block h-1 rounded-full bg-sunk overflow-hidden">
+                      <span
+                        className="block h-full rounded-full bg-accent/70"
+                        style={{ width: `${Math.max(4, (item.score / topScore) * 100)}%` }}
+                      />
+                    </span>
+                  </span>
+                  <span className="font-mono text-xs text-subtle tabular-nums">{item.score.toFixed(3)}</span>
+                </button>
+              </li>
             ))}
-          </div>
-        </div>
+          </ol>
+        </section>
 
-        {/* Cycles & Orphans */}
-        <div className="space-y-4">
-          {/* Circular Dependencies */}
-          <div className="bg-slate-950 border border-slate-800 rounded-md p-5 space-y-3">
-            <div className="flex items-center space-x-2">
-              <Share2 className="w-4 h-4 text-rose-400" />
-              <h3 className="text-sm font-bold text-slate-100">Circular Dependencies</h3>
-            </div>
-            {data?.cycles && data.cycles.length > 0 ? (
-              <div className="space-y-2">
-                {data.cycles.map((cyc, idx) => (
-                  <div key={idx} className="bg-rose-950/40 border border-rose-800/40 p-2.5 rounded-lg text-xs font-mono text-rose-300">
-                    Cycle #{idx + 1}: {cyc.join(' -> ')}
-                  </div>
+        <div className="lg:col-span-2 space-y-8">
+          <section>
+            <SectionTitle>Import loops</SectionTitle>
+            {cycles.length > 0 ? (
+              <ul className="space-y-2">
+                {cycles.map((cyc, idx) => (
+                  <li key={idx} className="rounded-md bg-bad-soft text-bad px-3 py-2 text-xs font-mono leading-relaxed">
+                    {cyc.join(' → ')} → {cyc[0]}
+                  </li>
                 ))}
-              </div>
+              </ul>
             ) : (
-              <div className="flex items-center space-x-2 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 p-3 rounded-lg">
-                <CheckCircle className="w-4 h-4 shrink-0" />
-                <span>Zero circular dependency cycles detected in this codebase.</span>
-              </div>
+              <p className="text-sm text-muted">None. No two files import each other in a circle.</p>
             )}
-          </div>
+          </section>
 
-          {/* Orphan Modules */}
-          <div className="bg-slate-950 border border-slate-800 rounded-md p-5 space-y-3">
-            <div className="flex items-center space-x-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400" />
-              <h3 className="text-sm font-bold text-slate-100">Orphan Modules</h3>
-            </div>
-            <p className="text-xs text-slate-400">
-              Files with zero incoming and zero outgoing internal imports (often dead code or standalone entrypoints).
+          <section>
+            <SectionTitle>Files nobody imports</SectionTitle>
+            <p className="text-sm text-muted mb-3 leading-relaxed">
+              These don't import other project files and nothing imports them. Usually scripts or entry points, but
+              sometimes dead code.
             </p>
-            {data?.orphans && data.orphans.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {data.orphans.map((orph) => (
+            {orphans.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {orphans.map((orph) => (
                   <button
                     key={orph}
                     onClick={() => onSelectTarget?.(orph)}
-                    className="px-2.5 py-1 rounded bg-amber-950/40 border border-amber-800/40 text-amber-300 font-mono text-xs hover:bg-amber-900/40 transition"
+                    className="rounded bg-warn-soft text-warn px-2 py-0.5 text-xs font-mono hover:underline underline-offset-2"
                   >
                     {orph}
                   </button>
                 ))}
               </div>
             ) : (
-              <div className="text-xs text-slate-500">No orphan modules found.</div>
+              <p className="text-sm text-muted">None found.</p>
             )}
-          </div>
+          </section>
         </div>
       </div>
 
-      {/* Dependency Edge Table */}
-      <div className="bg-slate-950 border border-slate-800 rounded-md overflow-hidden space-y-3 p-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <section>
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-3">
           <div>
-            <h3 className="text-sm font-bold text-slate-100">Recorded Dependency Edges ({filteredEdges.length})</h3>
-            <p className="text-xs text-slate-400">Extracted from AST `import` and `from ... import` statements.</p>
+            <h2 className="font-serif text-xl text-ink">Every import</h2>
+            <p className="text-sm text-muted">{filteredEdges.length} shown</p>
           </div>
-
-          <div className="flex space-x-1 bg-slate-950 border border-slate-800 rounded-lg p-1 text-xs">
-            <button
-              onClick={() => setFilterType('all')}
-              className={`px-3 py-1 rounded font-medium transition ${
-                filterType === 'all' ? 'bg-teal-600 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setFilterType('internal')}
-              className={`px-3 py-1 rounded font-medium transition ${
-                filterType === 'internal' ? 'bg-teal-600 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Internal Only
-            </button>
-            <button
-              onClick={() => setFilterType('external')}
-              className={`px-3 py-1 rounded font-medium transition ${
-                filterType === 'external' ? 'bg-teal-600 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              External
-            </button>
-          </div>
+          <Segmented
+            value={filterType}
+            onChange={setFilterType}
+            options={[
+              { value: 'internal', label: 'Within the project' },
+              { value: 'external', label: 'Libraries' },
+              { value: 'all', label: 'All' },
+            ]}
+          />
         </div>
 
-        <div className="overflow-x-auto max-h-96 scrollbar-thin">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className="sticky top-0 bg-slate-900 border-b border-slate-800 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-              <tr>
-                <th className="py-2.5 px-4">Source File</th>
-                <th className="py-2.5 px-4">Target Dependency</th>
-                <th className="py-2.5 px-4">Edge Type</th>
-                <th className="py-2.5 px-4 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800 font-mono">
-              {filteredEdges.map((e, idx) => (
-                <tr key={idx} className="hover:bg-slate-700/30 transition">
-                  <td className="py-2.5 px-4 text-slate-200">{e.source}</td>
-                  <td className="py-2.5 px-4 text-teal-300">{e.target}</td>
-                  <td className="py-2.5 px-4">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                        e.type === 'internal'
-                          ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-800/40'
-                          : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {e.type}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-4 text-right">
-                    <button
-                      onClick={() => onSelectTarget?.(e.target)}
-                      className="text-xs text-teal-400 hover:text-teal-300 font-sans"
-                    >
-                      Blast Radius
-                    </button>
-                  </td>
+        <Card className="overflow-hidden">
+          <div className="overflow-auto max-h-[28rem]">
+            <table className="w-full text-left text-sm border-collapse">
+              <thead className="sticky top-0 bg-surface border-b border-line text-xs text-subtle">
+                <tr>
+                  <th className="py-2.5 px-4 font-medium">File</th>
+                  <th className="py-2.5 px-4 font-medium">imports</th>
+                  <th className="py-2.5 px-4 font-medium" />
+                  <th className="py-2.5 px-4" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              </thead>
+              <tbody className="divide-y divide-line font-mono text-[13px]">
+                {filteredEdges.map((e, idx) => (
+                  <tr key={idx} className="hover:bg-sunk/60">
+                    <td className="py-2 px-4 text-ink whitespace-nowrap">{e.source}</td>
+                    <td className="py-2 px-4 text-muted whitespace-nowrap">{e.target}</td>
+                    <td className="py-2 px-4">
+                      {e.type !== 'internal' && <Tag className="font-sans">library</Tag>}
+                    </td>
+                    <td className="py-2 px-4 text-right">
+                      <button
+                        onClick={() => onSelectTarget?.(e.target)}
+                        className="font-sans text-xs text-accent hover:underline underline-offset-2 whitespace-nowrap"
+                      >
+                        What depends on this?
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </section>
     </div>
   );
 };

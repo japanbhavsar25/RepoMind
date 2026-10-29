@@ -12,7 +12,7 @@ import { ImpactView } from './views/ImpactView';
 import { EvaluationView } from './views/EvaluationView';
 import { API_HOST, addGitHubRepo, addLocalRepo, fetchHealth, fetchRepos, triggerIndex } from './api';
 import type { RepoInfo } from './types';
-import { AlertCircle, CheckCircle2, FileCode2, ShieldCheck } from 'lucide-react';
+import { Button, Notice, Spinner } from './components/ui';
 
 export default function App() {
   const [repos, setRepos] = useState<RepoInfo[]>([]);
@@ -55,7 +55,7 @@ export default function App() {
         } catch (err) {
           if (Date.now() > deadline) {
             console.error('Failed to load repositories:', err);
-            setError('Could not connect to the RepoMind backend. Press Retry in a moment.');
+            setError("Couldn't reach the RepoMind server. Give it a moment, then try again.");
             return;
           }
           setWaking(true);
@@ -86,7 +86,7 @@ export default function App() {
       await loadRepos();
     } catch (err) {
       console.error('Indexing failed:', err);
-      setError('Indexing request failed. Inspect backend terminal logs.');
+      setError('Re-indexing failed. The server log should say why.');
     } finally {
       setIndexing(false);
     }
@@ -133,7 +133,7 @@ export default function App() {
       setRepos(refreshed.repos);
     } catch (idxErr) {
       console.error('Initial indexing failed:', idxErr);
-      setError(`Repository '${name}' registered, but initial indexing encountered an issue: ${idxErr instanceof Error ? idxErr.message : String(idxErr)}`);
+      setError(`Added ${name}, but indexing it failed: ${idxErr instanceof Error ? idxErr.message : String(idxErr)}`);
     } finally {
       setIndexing(false);
       setIndexingRepoName(null);
@@ -143,8 +143,7 @@ export default function App() {
   const currentRepo = repos.find((r) => r.id === activeRepoId);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-teal-500/30 selection:text-teal-200">
-      {/* Global Header */}
+    <div className="min-h-screen bg-paper text-ink flex flex-col">
       <Header
         repos={repos}
         activeRepoId={activeRepoId}
@@ -154,7 +153,6 @@ export default function App() {
         indexing={indexing}
       />
 
-      {/* Add Repository Modal */}
       <AddRepoModal
         isOpen={isAddRepoOpen}
         onClose={() => setIsAddRepoOpen(false)}
@@ -163,52 +161,42 @@ export default function App() {
         allowLocal={localReposEnabled}
       />
 
-      {/* Navigation tabs */}
       <Navigation activeTab={activeTab} onTabChange={setActiveTab} />
 
-      {/* Main content body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 min-w-0">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-10 min-w-0 space-y-6">
         {indexingRepoName && (
-          <div
-            role="status"
-            className="mb-6 bg-teal-950/40 border border-teal-800/60 rounded-md p-4 flex items-start space-x-3 text-teal-200 text-sm"
-          >
-            <div className="w-4 h-4 mt-0.5 flex-shrink-0 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
-            <div className="flex-1">
-              <span className="font-semibold">Indexing {indexingRepoName}…</span>{' '}
-              <span className="text-teal-300/80">
-                Parsing files and building the search index. On the free demo server this can take a few minutes;
-                you can browse other tabs meanwhile.
-              </span>
-            </div>
-          </div>
+          <Notice>
+            <span className="font-medium">Indexing {indexingRepoName}…</span>{' '}
+            <span className="text-muted">
+              Reading every Python file and building the search index. On the free demo server this can take a few
+              minutes, so feel free to look around in the meantime.
+            </span>
+          </Notice>
         )}
 
         {error && (
-          <div className="mb-6 bg-red-950/40 border border-red-800/60 rounded-md p-4 flex items-start space-x-3 text-red-300 text-sm">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-400 mt-0.5" />
-            <div className="flex-1">
-              <span className="font-semibold">Backend Connection Issue:</span> {error}
-            </div>
-            <button
-              onClick={loadRepos}
-              className="text-xs px-2.5 py-1 rounded bg-red-900/60 hover:bg-red-800 text-slate-100 font-medium"
-            >
-              Retry
-            </button>
-          </div>
+          <Notice
+            tone="error"
+            action={
+              <Button size="sm" onClick={loadRepos}>
+                Try again
+              </Button>
+            }
+          >
+            {error}
+          </Notice>
         )}
 
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-24 text-slate-400 space-y-3">
-            <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm">
-              {waking ? 'Waking up the server…' : 'Connecting to the RepoMind engine…'}
+          <div className="flex flex-col items-center justify-center py-28 text-center">
+            <Spinner className="w-6 h-6 text-accent" />
+            <p className="mt-5 font-serif text-2xl text-ink">
+              {waking ? 'Waking the server up…' : 'Connecting…'}
             </p>
             {waking && (
-              <p className="text-xs text-slate-500 max-w-sm text-center">
-                The free demo server sleeps when nobody is using it. It takes about a minute to start —
-                thanks for waiting!
+              <p className="mt-2 text-sm text-muted max-w-sm leading-relaxed">
+                The demo runs on a free server that naps when nobody's around. It usually takes about a minute to get
+                going. Thanks for your patience.
               </p>
             )}
           </div>
@@ -223,7 +211,7 @@ export default function App() {
             )}
 
             {activeTab === 'symbols' && (
-              <SymbolsView repoId={activeRepoId} />
+              <SymbolsView repoId={activeRepoId} onNavigateToFile={handleNavigateToFile} />
             )}
 
             {activeTab === 'search' && (
@@ -241,7 +229,7 @@ export default function App() {
             {activeTab === 'impact' && (
               <ImpactView
                 repoId={activeRepoId}
-                initialTarget={impactTarget || 'models.py'}
+                initialTarget={impactTarget}
                 onNavigateToFile={handleNavigateToFile}
               />
             )}
@@ -253,31 +241,21 @@ export default function App() {
         )}
       </main>
 
-      {/* Global Footer */}
-      <footer className="border-t border-slate-800 bg-slate-950/90 px-4 sm:px-6 py-4 mt-auto text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-            <span className="flex items-center space-x-1.5 text-emerald-400">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Engine Status: Online</span>
-            </span>
-            <span className="flex items-center space-x-1.5 text-slate-400">
-              <FileCode2 className="w-3.5 h-3.5" />
-              <span>Python AST parsing</span>
-            </span>
-            <span className="flex items-center space-x-1.5 text-slate-400">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Strict Path Traversal Protection</span>
-            </span>
-          </div>
-
-          <div className="flex items-center space-x-3 text-slate-400 min-w-0">
-            <span className="font-mono bg-slate-900 px-2 py-0.5 rounded border border-slate-800 text-[11px] truncate">
-              API: {API_HOST}
-            </span>
-            <span>•</span>
-            <span>RepoMind</span>
-          </div>
+      <footer className="border-t border-line px-4 sm:px-6 py-6 mt-12 text-xs text-subtle">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
+          <p>
+            RepoMind is a side project by Japan Bhavsar.{' '}
+            <a
+              href="https://github.com/japanbhavsar25/RepoMind"
+              target="_blank"
+              rel="noreferrer"
+              className="text-muted underline underline-offset-2 hover:text-accent"
+            >
+              Read the source on GitHub
+            </a>
+            .
+          </p>
+          <p className="font-mono truncate max-w-full">server: {API_HOST}</p>
         </div>
       </footer>
     </div>
