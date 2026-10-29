@@ -12,11 +12,11 @@ How RepoMind is tested, and how retrieval quality is measured. Every number here
 
 ---
 
-## 2. Test suite: 167 tests
+## 2. Test suite: 176 tests
 
 ```bash
 pytest                                # all tests
-ruff check repomind backend tests     # lint
+ruff check repomind backend tests eval  # lint
 cd frontend && npm run build          # type-check (tsc -b) + production bundle
 ```
 
@@ -41,6 +41,7 @@ cd frontend && npm run build          # type-check (tsc -b) + production bundle
 | `test_symbols_and_eval.py` | 2 | Per-method complexity in Symbols; the gold set is used only for RepoMind itself |
 | `test_qa_hardening.py` | 22 | QA report Critical/High: CORS and Origin checks, Python-only file viewer, PageRank without SciPy, impact paths with `/`, honest citation scores, LLM errors as 502, no re-index on the demo |
 | `test_qa_medium.py` | 14 | QA report Medium: clone limit (proxy hop, free mistakes, server cap), sibling imports, exact symbol lookup, BOM files, MCP error handling, benchmark sampling, CLI Groq key, unknown repo/target |
+| `test_qa_low.py` | 9 | QA report Low/Nit: no internals in errors or public paths, reciprocal-rank scores, keyword fallback with real lines, evidence-only text, one index run per repo, one health score, literal `%`/`_` in name search, decorators in a symbol's lines |
 
 CI (`.github/workflows/ci.yml`) runs the suite on Ubuntu and Windows with Python 3.11 and 3.12. A second workflow (`.github/workflows/eval.yml`) runs the retrieval benchmark below as a quality gate.
 

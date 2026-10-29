@@ -9,7 +9,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue?logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
-[![Tests](https://img.shields.io/badge/tests-167%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-176%20passing-success)](tests/)
 [![Retrieval eval](https://github.com/japanbhavsar25/RepoMind/actions/workflows/eval.yml/badge.svg)](.github/workflows/eval.yml)
 
 ---
@@ -127,7 +127,7 @@ uvicorn backend.main:app --port 8001 --reload
 cd frontend && npm install && npm run dev
 ```
 
-Run the tests: `pytest` (167 tests) and `ruff check repomind backend tests`.
+Run the tests: `pytest` (176 tests) and `ruff check repomind backend tests eval`.
 
 ### CLI
 ```bash

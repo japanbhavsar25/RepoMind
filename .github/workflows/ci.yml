@@ -33,4 +33,4 @@ jobs:
         run: pytest tests/ -v
 
       - name: Check code style
-        run: ruff check repomind/ tests/
+        run: ruff check repomind backend tests eval
