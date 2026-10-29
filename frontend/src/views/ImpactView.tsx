@@ -133,7 +133,14 @@ export const ImpactView: React.FC<ImpactViewProps> = ({ repoId, initialTarget, o
         </p>
       )}
 
-      {impact && (
+      {impact && !impact.found && (
+        <Notice>
+          RepoMind couldn't find a file or function called <code className="text-accent">{impact.target}</code> in
+          this repository. Check the spelling, or pick one from the suggestions.
+        </Notice>
+      )}
+
+      {impact?.found && (
         <article className={`space-y-10 transition-opacity ${loading ? 'opacity-50' : ''}`}>
           <div className="border-l-4 border-accent pl-5 py-1">
             <p className="font-serif text-2xl sm:text-[1.7rem] leading-snug text-ink">

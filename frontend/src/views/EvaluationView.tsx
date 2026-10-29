@@ -12,7 +12,7 @@ type Strategy = 'dense' | 'sparse' | 'hybrid';
 const STRATEGIES: Array<{ key: Strategy; name: string; how: string }> = [
   { key: 'dense', name: 'By meaning', how: 'Embeddings (all-MiniLM-L6-v2 in ChromaDB)' },
   { key: 'sparse', name: 'By keyword', how: 'BM25 full-text search in SQLite' },
-  { key: 'hybrid', name: 'Both, combined', how: 'Reciprocal Rank Fusion of the two (what RepoMind uses)' },
+  { key: 'hybrid', name: 'Both, combined', how: 'Reciprocal Rank Fusion of the two, then reranked (what Ask and Search use)' },
 ];
 
 const METRICS: Array<{ key: keyof MetricScores; label: string; hint: string; format: (v: number) => string; lowerIsBetter?: boolean }> = [

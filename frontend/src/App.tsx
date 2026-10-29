@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { Header } from './components/Header';
 import { AddRepoModal } from './components/AddRepoModal';
 import { Navigation, type TabType } from './components/Navigation';
@@ -202,7 +202,9 @@ export default function App() {
             )}
           </div>
         ) : (
-          <>
+          // Keyed by repo: switching repos remounts the views, so no old results or
+          // late replies from the previous repo can show up under the new one
+          <Fragment key={activeRepoId}>
             {activeTab === 'overview' && (
               <OverviewView repo={currentRepo} onNavigate={setActiveTab} />
             )}
@@ -238,7 +240,7 @@ export default function App() {
             {activeTab === 'evaluation' && (
               <EvaluationView repoId={activeRepoId} />
             )}
-          </>
+          </Fragment>
         )}
       </main>
 

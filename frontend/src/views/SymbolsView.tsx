@@ -3,6 +3,7 @@ import { Search, X } from 'lucide-react';
 import { fetchSymbols } from '../api';
 import type { SymbolInfo } from '../types';
 import { Button, PageHeader, Segmented, Tag, inputClass, type Tone } from '../components/ui';
+import { useFocusTrap } from '../useFocusTrap';
 
 interface SymbolsViewProps {
   repoId: string;
@@ -54,6 +55,8 @@ export const SymbolsView: React.FC<SymbolsViewProps> = ({ repoId, onNavigateToFi
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedSymbol]);
+
+  const dialogRef = useFocusTrap<HTMLDivElement>(selectedSymbol != null);
 
   const filtered = symbols.filter((s) => {
     const term = searchFilter.toLowerCase();
@@ -127,8 +130,18 @@ export const SymbolsView: React.FC<SymbolsViewProps> = ({ repoId, onNavigateToFi
                     className="hover:bg-sunk cursor-pointer transition"
                   >
                     <td className="py-2.5 px-4 font-mono text-[13px] text-ink whitespace-nowrap">
-                      <span className="text-subtle mr-1.5 text-[11px]">{s.kind === 'class' ? 'class' : 'def'}</span>
-                      {s.qualified_name || s.name}
+                      {/* A real button, so the details can be opened from the keyboard too */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedSymbol(s);
+                        }}
+                        className="text-left rounded-sm hover:underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-accent"
+                      >
+                        <span className="text-subtle mr-1.5 text-[11px]">{s.kind === 'class' ? 'class' : 'def'}</span>
+                        {s.qualified_name || s.name}
+                      </button>
                     </td>
                     <td className="py-2.5 px-4 font-mono text-xs text-muted whitespace-nowrap">{s.file_path}</td>
                     <td className="py-2.5 px-4 font-mono text-xs text-subtle whitespace-nowrap tabular-nums">
@@ -154,6 +167,8 @@ export const SymbolsView: React.FC<SymbolsViewProps> = ({ repoId, onNavigateToFi
           onClick={() => setSelectedSymbol(null)}
         >
           <div
+            ref={dialogRef}
+            tabIndex={-1}
             role="dialog"
             aria-modal="true"
             aria-label={selectedSymbol.qualified_name || selectedSymbol.name}

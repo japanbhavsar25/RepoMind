@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { browseFolder } from '../api';
 import { Button, Notice, Segmented, Spinner, inputClass } from './ui';
+import { useFocusTrap } from '../useFocusTrap';
 
 interface AddRepoModalProps {
   isOpen: boolean;
@@ -36,6 +37,8 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, busy, onClose]);
+
+  const dialogRef = useFocusTrap<HTMLDivElement>(isOpen);
 
   if (!isOpen) return null;
 
@@ -114,6 +117,8 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({
       onClick={() => !busy && onClose()}
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-repo-title"
