@@ -9,7 +9,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue?logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
-[![Tests](https://img.shields.io/badge/tests-128%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-167%20passing-success)](tests/)
 [![Retrieval eval](https://github.com/japanbhavsar25/RepoMind/actions/workflows/eval.yml/badge.svg)](.github/workflows/eval.yml)
 
 ---
@@ -63,7 +63,7 @@ The same code also runs fully offline on a laptop, with a local [Ollama](https:/
 All numbers below were measured on this codebase in October 2026. The retrieval script is [`eval/run.py`](eval/run.py) and its output is in [`eval/results.md`](eval/results.md).
 
 ### Retrieval quality
-Benchmark: 35 hand-labelled queries about RepoMind's own code (502 chunks): 20 natural-language questions ("how are orphan files detected?") and 15 identifier lookups (`verify_citations`, `GroqClient.generate`). A hit means the expected file appears in the top-k results.
+Benchmark: 35 hand-labelled queries about RepoMind's own code (512 chunks when measured): 20 natural-language questions ("how are orphan files detected?") and 15 identifier lookups (`verify_citations`, `GroqClient.generate`). A hit means the expected file appears in the top-k results.
 
 | Retrieval setup | Natural (n=20) Hit@5 / MRR@5 | Identifier (n=15) Hit@5 / MRR@5 | All (n=35) Hit@5 / MRR@5 |
 |---|---|---|---|
@@ -81,7 +81,7 @@ Benchmark: 35 hand-labelled queries about RepoMind's own code (502 chunks): 20 n
 |---|---|
 | Peak memory (startup + clone + index + answer) | **938 MB → 315 MB (−66%)** after replacing PyTorch with ONNX Runtime and turning off its memory arena, so it fits Render's free 512 MB |
 | Answer time on the live free tier (warm) | 4.7–8.2 s end to end, of which the Groq call is 0.8–2.4 s |
-| Tokens per answer | about 1.3k–3.1k (prompt + completion) |
+| Tokens per answer | about 1.3k–3.7k (prompt + completion) |
 | Indexing a new repo | about 15 s on a laptop CPU for `itsdangerous` (154 chunks); a few minutes on Render's free 0.1 vCPU |
 | Search latency (laptop CPU) | about 0.2 s per query |
 
@@ -93,7 +93,7 @@ Benchmark: 35 hand-labelled queries about RepoMind's own code (502 chunks): 20 n
 - **Verify, don't trust.** The LLM is told to cite every claim with a full path. A verifier then parses the citations and checks them against SQLite and the retrieved chunks. Citations it can't match lower the "% verified" score instead of being hidden.
 - **Prompt-injection guard.** Retrieved code is fenced as context, and the system prompt says never to follow instructions found inside it.
 - **Built for 512 MB.** Embeddings run on ChromaDB's bundled ONNX MiniLM, the same model as sentence-transformers, so the vectors are compatible. The cross-encoder reranker is optional and falls back to a lexical heuristic when PyTorch isn't installed. Models are loaded once and warmed up at startup.
-- **Safe to expose publicly.** In `PUBLIC_MODE`, registering server-side folders is disabled and GitHub clones are rate-limited per IP (5 per hour). Clone URLs are HTTPS-only with a host allow-list (github.com, gitlab.com, bitbucket.org). Clones are shallow, non-interactive, time-limited, and symlinks are turned off. File reads are confined to the repo root. Repository code is parsed, never executed.
+- **Safe to expose publicly.** In `PUBLIC_MODE`, registering server-side folders is disabled and GitHub clones are rate-limited per IP (5 per hour) and for the whole server (20 per hour); bad links don't count. Clone URLs are HTTPS-only with a host allow-list (github.com, gitlab.com, bitbucket.org). Clones are shallow, non-interactive, time-limited, and symlinks are turned off. File reads are confined to the repo root. Repository code is parsed, never executed.
 
 ---
 
@@ -102,7 +102,7 @@ Benchmark: 35 hand-labelled queries about RepoMind's own code (502 chunks): 20 n
 - Python only; other languages are skipped.
 - Static analysis only: dynamic dispatch, reflection and runtime imports aren't resolved.
 - On the free tier, indexing a large repo is slow, and anything added by visitors disappears when the server restarts. Only the three demo repos are built into the image.
-- The retrieval benchmark is small (20 questions on one repo). Treat the numbers as a regression check, not a general score.
+- The retrieval benchmark is small (35 questions on one repo). Treat the numbers as a regression check, not a general score.
 
 ---
 
@@ -127,13 +127,13 @@ uvicorn backend.main:app --port 8001 --reload
 cd frontend && npm install && npm run dev
 ```
 
-Run the tests: `pytest` (128 tests) and `ruff check repomind backend tests`.
+Run the tests: `pytest` (167 tests) and `ruff check repomind backend tests`.
 
 ### CLI
 ```bash
 repomind index .                 # parse ASTs into SQLite
 repomind embed                   # build the vector index
-repomind ask "Where are citations verified?"
+repomind ask "Where are citations verified?"   # Groq if GROQ_API_KEY is set (env or .env), else Ollama
 repomind impact repomind/rag.py  # blast radius before a refactor
 repomind graph . --open          # interactive dependency graph
 repomind evaluate                # retrieval benchmark

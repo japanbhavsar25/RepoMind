@@ -18,7 +18,7 @@ How RepoMind handles untrusted repositories and user input, what is actually enf
 | **Symlinks pointing outside the clone** | Clone with `core.symlinks=false`, so symlinks become plain files | `repo_manager._git_clone` |
 | **Oversized repos / files** | Reject repos with more than `MAX_REPO_FILES` (2000) Python files; skip files over `MAX_FILE_SIZE_BYTES` (2 MB) when indexing | `repo_manager` |
 | **Reading the host's own folders** on a public server | `PUBLIC_MODE=true` disables `POST /api/repos/local` and the folder picker (403) | `backend/routers/repos.py` |
-| **Clone flooding** on a public server | `PUBLIC_MODE` rate limit: `GITHUB_ADDS_PER_HOUR` (default 5) per client IP | `backend/routers/repos.py` |
+| **Clone flooding** on a public server | `PUBLIC_MODE` rate limits: `GITHUB_ADDS_PER_HOUR` (default 5) per client IP and `GITHUB_ADDS_PER_HOUR_TOTAL` (default 20) for the whole server. Rejected links and failed clones aren't counted. | `backend/routers/repos.py` |
 | **Prompt injection** inside repository code | Code is fenced as context; system and user prompts say never to follow instructions inside it. Citations are verified afterwards. | `repomind/rag.py` |
 | **Leaking secrets** | API keys come only from environment variables or `.env` (git-ignored). The deploy script uploads only the committed tree. | `backend/config.py`, `.gitignore` |
 
@@ -51,7 +51,7 @@ target_path.relative_to(base_dir.resolve())  # raises -> SecurityError if outsid
 - Hidden folders (`.something/`) and common build/virtualenv folders inside a repo are skipped.
 
 ### 3.2 Public deployment
-- The rate limit is per IP and kept in memory, so it resets on restart and is best-effort behind proxies (`X-Forwarded-For` is trusted).
+- The rate limit is kept in memory, so it resets on restart. Behind a proxy the client IP is the **last** `X-Forwarded-For` entry (the one the proxy adds), so a client can't dodge it by sending its own header. Without a proxy in front, that header could still be forged; the server-wide cap is the backstop.
 - There's one shared "active repo" for all visitors, and repos added by visitors live on ephemeral disk (lost when the free instance restarts).
 - Snippets of the analyzed code are sent to the configured LLM (Groq in the hosted demo). For fully local use, run with Ollama and no `GROQ_API_KEY`.
 

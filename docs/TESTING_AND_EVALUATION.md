@@ -12,7 +12,7 @@ How RepoMind is tested, and how retrieval quality is measured. Every number here
 
 ---
 
-## 2. Test suite: 128 tests
+## 2. Test suite: 167 tests
 
 ```bash
 pytest                                # all tests
@@ -37,6 +37,10 @@ cd frontend && npm run build          # type-check (tsc -b) + production bundle
 | `test_groq.py` | 6 | Groq client, error messages, provider selection, metrics in `/api/ask` |
 | `test_public_mode.py` | 6 | Public mode: blocked folder access, per-IP rate limit, model caching |
 | `test_embed_backend.py` | 4 | ONNX vs sentence-transformers selection, reranker fallback without PyTorch |
+| `test_search_service.py` | 1 | Search results keep their real line ranges |
+| `test_symbols_and_eval.py` | 2 | Per-method complexity in Symbols; the gold set is used only for RepoMind itself |
+| `test_qa_hardening.py` | 22 | QA report Critical/High: CORS and Origin checks, Python-only file viewer, PageRank without SciPy, impact paths with `/`, honest citation scores, LLM errors as 502, no re-index on the demo |
+| `test_qa_medium.py` | 14 | QA report Medium: clone limit (proxy hop, free mistakes, server cap), sibling imports, exact symbol lookup, BOM files, MCP error handling, benchmark sampling, CLI Groq key, unknown repo/target |
 
 CI (`.github/workflows/ci.yml`) runs the suite on Ubuntu and Windows with Python 3.11 and 3.12. A second workflow (`.github/workflows/eval.yml`) runs the retrieval benchmark below as a quality gate.
 
@@ -46,7 +50,7 @@ CI (`.github/workflows/ci.yml`) runs the suite on Ubuntu and Windows with Python
 
 ### 3.1 Method
 - **Dataset:** [`eval/gold.json`](../eval/gold.json), 35 hand-written queries about **RepoMind's own code**, each labelled with the file(s) that answer it and a `kind`: 20 `natural` questions and 15 `identifier` lookups (e.g. `verify_citations`, `RepoMindMCPServer.handle_tool_call`).
-- **Corpus:** the RepoMind repository (502 chunks).
+- **Corpus:** the RepoMind repository (512 chunks when measured).
 - **Metrics** (k = 5): **Hit@k**, the share of questions where an expected file is in the top k; and **MRR@k**, the mean of 1/rank of the first correct file (0 if not in the top k).
 - **Run it:**
   ```bash
@@ -87,5 +91,5 @@ Measured on the deployed demo (Render free tier, 512 MB, Groq `openai/gpt-oss-12
 |---|---|
 | Peak memory (startup + clone + index + answer) | 938 MB with PyTorch → **315 MB** with ONNX Runtime (arena off, batch 8) |
 | Warm answer time | 4.7–8.2 s end to end; Groq call 0.8–2.4 s |
-| Tokens per answer | ~1.3k–3.1k |
+| Tokens per answer | ~1.3k–3.7k |
 | Citation verification on spot checks | 100% on demo-repo questions after requiring full paths in citations |
