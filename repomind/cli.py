@@ -440,7 +440,7 @@ def impact(
         console.print(f"\n[bold]Direct Symbol Callers ({len(result['callers'])}):[/bold]")
         for c in result["callers"][:10]:
             console.print(
-                f"  * [cyan]{c['caller_symbol']}[/cyan] ({c['caller_file']}:{c['line']}) -> [green]{c['callee']}[/green]"
+                f"  * [cyan]{c['caller_symbol']}[/cyan] ({c['caller_file']}:{c['line_number']}) -> [green]{c['callee']}[/green]"
             )
 
 

@@ -205,19 +205,28 @@ class GraphBuilder:
                             "caller_file": r[0],
                             "caller_symbol": r[1],
                             "callee": r[2],
-                            "line": r[3],
+                            "line_number": r[3],
                         }
                         for r in raw_calls
                     ]
             else:
-                # File matched: find callers of any functions in this file
-                raw_calls = db.get_symbol_calls(file_path=matched_file)
+                # File matched: find callers of any functions defined in this file
+                # (matched by name, like the symbol branch; dunders would match every class)
+                names = {
+                    r[0]
+                    for r in db.get_function_complexities(file_path=matched_file)
+                    if not r[0].startswith("__")
+                }
+                raw_calls = sorted(
+                    {call for name in names for call in db.get_symbol_calls(callee_name=name)},
+                    key=lambda r: (r[0], r[3] or 0),
+                )
                 callers = [
                     {
                         "caller_file": r[0],
                         "caller_symbol": r[1],
                         "callee": r[2],
-                        "line": r[3],
+                        "line_number": r[3],
                     }
                     for r in raw_calls
                 ]

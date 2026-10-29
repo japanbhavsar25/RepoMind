@@ -172,6 +172,12 @@ def test_blast_radius_and_transitive_dependents(tmp_path):
     assert "pkg/a.py" in res["transitive_dependents"]
     assert res["blast_radius_count"] == 2
     assert res["complexity"]["max"] == 5
+    # Callers of the file's functions (not calls made from it), keyed as the API and Impact view read them
+    expected = [{"caller_file": "pkg/b.py", "caller_symbol": "b_func", "callee": "compute", "line_number": 4}]
+    assert res["callers"] == expected
+    assert builder.compute_blast_radius("compute")["callers"] == expected
+    # b.py defines nothing that is called, so its own outgoing call is not listed as a caller of b.py
+    assert builder.compute_blast_radius("pkg/b.py")["callers"] == []
 
 
 def from_import_rec(file_id: int, mod: str, name: str):

@@ -67,8 +67,8 @@ class SearchService:
                     "chunk_id": str(chunk_id),
                     "file_path": f_path,
                     "snippet": doc[:400] + ("..." if len(doc) > 400 else ""),
-                    "line_start": meta.get("line_start", 1),
-                    "line_end": meta.get("line_end", 1),
+                    "line_start": meta.get("start", 1),
+                    "line_end": meta.get("end", 1),
                     "score": score,
                     "match_type": "hybrid",
                 })
