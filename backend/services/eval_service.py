@@ -23,8 +23,10 @@ class EvalService:
             }
 
         evaluator = RetrievalEvaluator(repo.db_path)
+        # The hand-labelled gold set is about RepoMind's own files; any other repo
+        # gets only questions sampled from its own documented symbols.
         gold_file = settings.base_dir / "eval" / "gold.json"
-        gold_path = gold_file if gold_file.exists() else None
+        gold_path = gold_file if repo.id == "repomind_core" and gold_file.exists() else None
 
         raw = evaluator.run_full_evaluation(gold_path=gold_path, max_samples=max_samples)
 

@@ -22,7 +22,8 @@ def list_symbols(
 
     symbols: list[SymbolInfo] = []
     with RepoDatabase(repo.db_path) as db:
-        complexities = {row[0]: row[2] for row in db.get_function_complexities()}
+        # Keyed by file + qualified name: bare names repeat (every class has __init__)
+        complexities = {(row[3], row[1] or row[0]): row[2] for row in db.get_function_complexities()}
         all_syms = db.get_all_symbols()
 
         for kind_val, _id, name, qname, doc, _src, lstart, lend, fpath in all_syms:
@@ -30,7 +31,7 @@ def list_symbols(
             if kind and sym_kind.lower() != kind.lower():
                 continue
 
-            complexity = complexities.get(name, 1) if sym_kind == "function" else 1
+            complexity = complexities.get((fpath, qname or name), 1) if sym_kind == "function" else 1
 
             symbols.append(
                 SymbolInfo(
@@ -83,8 +84,8 @@ def get_symbol_detail(symbol_name: str, repo_id: str | None = Query(None)):
 
         # Look up complexity
         comp_rows = db.get_function_complexities(file_path=fpath)
-        comp_map = {r[0]: r[2] for r in comp_rows}
-        complexity = comp_map.get(name, 1)
+        comp_map = {r[1] or r[0]: r[2] for r in comp_rows}
+        complexity = comp_map.get(qname or name, 1)
 
         # Look up callers
         calls = db.get_symbol_calls(callee_name=name)
