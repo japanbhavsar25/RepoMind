@@ -99,7 +99,7 @@ export interface AskResponse {
   question: string;
   answer: string;
   citations: Citation[];
-  citation_confidence: number;
+  citation_confidence: number | null;
   intent: string;
   model_used: string;
   chunks_retrieved: number;

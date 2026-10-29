@@ -34,6 +34,10 @@ def llm_available(client: GroqClient | OllamaClient) -> bool:
         return False
 
 
+class LLMUnavailableError(RuntimeError):
+    """The language model was reachable but failed to produce an answer."""
+
+
 class QAService:
     """Manages context retrieval, prompt synthesis, and citation verification."""
 
@@ -50,7 +54,7 @@ class QAService:
                 "question": question,
                 "answer": "This repository has not been indexed yet. Please run Indexing first.",
                 "citations": [],
-                "citation_confidence": 0.0,
+                "citation_confidence": None,
                 "intent": "general",
                 "model_used": "none",
                 "chunks_retrieved": 0,
@@ -95,13 +99,14 @@ class QAService:
                 "question": question,
                 "answer": "No relevant code chunks could be retrieved for this query.",
                 "citations": [],
-                "citation_confidence": 0.0,
+                "citation_confidence": None,
                 "intent": intent_label,
                 "model_used": "none",
                 "chunks_retrieved": 0,
             }
 
-        # Build citations from retrieved evidence
+        # Build citations from retrieved evidence. "verified" is set below, only for
+        # snippets a grounded citation in the written answer points into.
         citations: list[dict[str, Any]] = []
         for doc, meta in zip(docs, metas, strict=False):
             citations.append({
@@ -109,7 +114,7 @@ class QAService:
                 "line_start": meta.get("start", 1),
                 "line_end": meta.get("end", meta.get("start", 1)),
                 "snippet": doc[:300] + ("..." if len(doc) > 300 else ""),
-                "verified": True,
+                "verified": False,
             })
 
         llm = get_llm_client()
@@ -130,42 +135,42 @@ class QAService:
                 "question": question,
                 "answer": "\n".join(summary_lines),
                 "citations": citations,
-                "citation_confidence": 1.0,
+                "citation_confidence": None,  # no written answer, so nothing to verify
                 "intent": intent_label,
                 "model_used": "none (evidence only)",
                 "chunks_retrieved": len(docs),
             }
 
-        # LLM available -> grounded answer from the chunks we already retrieved
+        # LLM available -> grounded answer from the chunks we already retrieved.
+        # An LLM failure raises LLMUnavailableError: the router turns it into a 502,
+        # rather than a 200 whose "answer" is an error message with a score attached.
+        prompt, system = rag.build_prompt(question, docs, metas)
         try:
-            prompt, system = rag.build_prompt(question, docs, metas)
             raw_answer = llm.generate(prompt, system=system, temperature=0.2)
-            # Some models (e.g. gpt-oss) cite with CJK lenticular brackets; normalize for the verifier
-            raw_answer = raw_answer.replace("【", "[").replace("】", "]")
-            v_report = verify_citations(raw_answer, metas, repo.db_path)
-            usage = getattr(llm, "last_usage", {}) or {}
-            return {
-                "question": question,
-                "answer": raw_answer,
-                "citations": citations,
-                "citation_confidence": v_report.get("confidence_score", 0.0),
-                "intent": intent_label,
-                "model_used": llm.model,
-                "chunks_retrieved": len(docs),
-                "latency_ms": usage.get("latency_ms"),
-                "prompt_tokens": usage.get("prompt_tokens"),
-                "completion_tokens": usage.get("completion_tokens"),
-            }
         except Exception as exc:
-            return {
-                "question": question,
-                "answer": f"Error communicating with the LLM: {exc}",
-                "citations": citations,
-                "citation_confidence": 0.5,
-                "intent": intent_label,
-                "model_used": llm.model,
-                "chunks_retrieved": len(docs),
-            }
+            raise LLMUnavailableError(f"The language model couldn't answer: {exc}") from exc
+        # Some models (e.g. gpt-oss) cite with CJK lenticular brackets; normalize for the verifier
+        raw_answer = raw_answer.replace("【", "[").replace("】", "]")
+        v_report = verify_citations(raw_answer, metas, repo.db_path)
+        grounded = [c for c in v_report["citations"] if c["status"] == "GROUNDED"]
+        for c in citations:
+            c["verified"] = any(
+                g["file"] == c["file_path"] and c["line_start"] <= g["lines"][0] and g["lines"][1] <= c["line_end"]
+                for g in grounded
+            )
+        usage = getattr(llm, "last_usage", {}) or {}
+        return {
+            "question": question,
+            "answer": raw_answer,
+            "citations": citations,
+            "citation_confidence": v_report["confidence_score"],
+            "intent": intent_label,
+            "model_used": llm.model,
+            "chunks_retrieved": len(docs),
+            "latency_ms": usage.get("latency_ms"),
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+        }
 
 
 qa_service = QAService()

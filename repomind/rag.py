@@ -370,6 +370,11 @@ def verify_citations(
 ) -> dict:
     """Parse [file:start-end] citations in the LLM's answer and verify them against
     retrieved chunks and SQLite database.
+
+    Each distinct citation gets a status: ``GROUNDED`` (at least 80% of its lines
+    are inside chunks the model was shown), ``NOT_GROUNDED``, ``INVALID_LINES``
+    or ``FILE_NOT_FOUND``. ``confidence_score`` is the grounded share, or ``None``
+    when the answer cites nothing.
     """
     import re
 
@@ -388,69 +393,64 @@ def verify_citations(
         e = meta.get("end", s)
         chunks_by_file.setdefault(mf, []).append((s, e))
 
+    def resolve(f_norm: str) -> str | None:
+        """Exact path, else a unique match on whole path segments (``rag.py`` -> ``repomind/rag.py``)."""
+        if f_norm in file_paths:
+            return f_norm
+        candidates = sorted(fp for fp in file_paths if fp.endswith(f"/{f_norm}"))
+        # Ambiguous short names resolve to a file the model was actually shown
+        retrieved = [fp for fp in candidates if fp in chunks_by_file]
+        if len(retrieved) == 1 or (retrieved and len(candidates) > 1):
+            return retrieved[0]
+        return candidates[0] if len(candidates) == 1 else None
+
     citation_details = []
     verified_count = 0
     grounded_count = 0
+    seen: set[tuple[str, int, int]] = set()
 
     for file_match, start_str, end_str in matches:
         f_norm = file_match.replace("\\", "/")
         start = int(start_str)
         end = int(end_str) if end_str else start
+        raw = f"[{file_match}:{start_str}{'-' + end_str if end_str else ''}]"
 
-        # Check if file exists in repo (exact or suffix match)
-        resolved_file = None
-        if f_norm in file_paths:
-            resolved_file = f_norm
-        else:
-            for fp in file_paths:
-                if fp.endswith(f_norm) or fp.endswith(f"/{f_norm}"):
-                    resolved_file = fp
-                    break
+        resolved_file = resolve(f_norm)
+        # The same citation repeated counts once
+        key = (resolved_file or f_norm, start, end)
+        if key in seen:
+            continue
+        seen.add(key)
 
         if not resolved_file:
-            citation_details.append(
-                {
-                    "raw": f"[{file_match}:{start_str}{'-' + end_str if end_str else ''}]",
-                    "file": file_match,
-                    "lines": (start, end),
-                    "status": "FILE_NOT_FOUND",
-                }
-            )
-            continue
-
-        verified_count += 1
-        is_grounded = False
-        matching_chunks = chunks_by_file.get(resolved_file, [])
-        for cs, ce in matching_chunks:
-            if not (end < cs or start > ce):
-                is_grounded = True
-                break
-
-        if is_grounded:
-            grounded_count += 1
-            status = "GROUNDED"
+            status = "FILE_NOT_FOUND"
+        elif start < 1 or end < start:
+            verified_count += 1
+            status = "INVALID_LINES"
         else:
-            status = "UNVERIFIED"
+            verified_count += 1
+            # Grounded only if (nearly) all cited lines sit inside code the model was shown.
+            # Lines past the end of a file, or a whole-file range, can't pass this.
+            shown = set()
+            for cs, ce in chunks_by_file.get(resolved_file, []):
+                shown.update(range(cs, ce + 1))
+            cited = range(start, end + 1)
+            covered = sum(1 for line in cited if line in shown)
+            status = "GROUNDED" if covered >= 0.8 * len(cited) else "NOT_GROUNDED"
 
+        if status == "GROUNDED":
+            grounded_count += 1
         citation_details.append(
-            {
-                "raw": f"[{file_match}:{start_str}{'-' + end_str if end_str else ''}]",
-                "file": resolved_file,
-                "lines": (start, end),
-                "status": status,
-            }
+            {"raw": raw, "file": resolved_file or file_match, "lines": (start, end), "status": status}
         )
 
-    total = len(matches)
+    total = len(citation_details)
     if total == 0:
-        conf_score = 0.5
-        level = "MEDIUM"
+        # Nothing to verify: no score rather than a made-up one
+        conf_score = None
+        level = "NONE"
     else:
-        score_sum = sum(
-            1.0 if c["status"] == "GROUNDED" else 0.5 if c["status"] == "UNVERIFIED" else 0.0
-            for c in citation_details
-        )
-        conf_score = score_sum / total
+        conf_score = grounded_count / total
         if conf_score >= 0.8:
             level = "HIGH"
         elif conf_score >= 0.4:
@@ -463,7 +463,7 @@ def verify_citations(
         "verified_count": verified_count,
         "grounded_count": grounded_count,
         "confidence_score": conf_score,
-        "confidence_pct": int(conf_score * 100),
+        "confidence_pct": None if conf_score is None else int(conf_score * 100),
         "level": level,
         "citations": citation_details,
     }

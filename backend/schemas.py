@@ -163,7 +163,9 @@ class AskResponse(BaseModel):
     question: str
     answer: str
     citations: list[Citation]
-    citation_confidence: float = 0.0
+    # Share of the answer's citations grounded in retrieved code; None when there's
+    # no written answer or it cites nothing (so the UI shows no score)
+    citation_confidence: float | None = None
     intent: str = "general"
     model_used: str = "none"
     chunks_retrieved: int = 0

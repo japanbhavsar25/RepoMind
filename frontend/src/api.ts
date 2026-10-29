@@ -149,7 +149,10 @@ export async function askQuestion(question: string, repoId: string, useLlm: bool
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question, top_k: 5, use_llm: useLlm }),
   });
-  if (!res.ok) throw new Error(`Q&A failed: ${res.statusText}`);
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Q&A failed: ${res.statusText}`);
+  }
   return res.json();
 }
 

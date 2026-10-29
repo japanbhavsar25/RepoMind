@@ -139,7 +139,9 @@ export const AskView: React.FC<AskViewProps> = ({ repoId, onNavigateToFile }) =>
     }
   };
 
-  const verifiedPct = response ? Math.round(response.citation_confidence * 100) : 0;
+  // null when there's no written answer or it cites nothing: show no score rather than a made-up one
+  const verifiedPct =
+    response?.citation_confidence != null ? Math.round(response.citation_confidence * 100) : null;
   const tokens =
     response?.prompt_tokens != null ? response.prompt_tokens + (response.completion_tokens ?? 0) : null;
 
@@ -218,7 +220,9 @@ export const AskView: React.FC<AskViewProps> = ({ repoId, onNavigateToFile }) =>
         <article className="space-y-8">
           <div className="bg-surface border border-line rounded-lg p-6 sm:p-7">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-5">
-              <Tag tone={verifiedTone(verifiedPct)}>{verifiedPct}% of citations verified</Tag>
+              {verifiedPct != null && (
+                <Tag tone={verifiedTone(verifiedPct)}>{verifiedPct}% of citations verified</Tag>
+              )}
               <span className="text-xs text-subtle font-mono">
                 {response.model_used}
                 {response.latency_ms != null && ` · ${(response.latency_ms / 1000).toFixed(1)}s`}
