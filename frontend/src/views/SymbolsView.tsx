@@ -7,7 +7,7 @@ import { useFocusTrap } from '../useFocusTrap';
 
 interface SymbolsViewProps {
   repoId: string;
-  onNavigateToFile?: (path: string) => void;
+  onNavigateToFile?: (path: string, line?: number) => void;
 }
 
 function complexity(cc: number): { label: string; tone: Tone } {
@@ -218,7 +218,7 @@ export const SymbolsView: React.FC<SymbolsViewProps> = ({ repoId, onNavigateToFi
                 <Button
                   variant="primary"
                   onClick={() => {
-                    onNavigateToFile(selectedSymbol.file_path);
+                    onNavigateToFile(selectedSymbol.file_path, selectedSymbol.line_start);
                     setSelectedSymbol(null);
                   }}
                 >

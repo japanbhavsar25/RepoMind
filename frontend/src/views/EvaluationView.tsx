@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { fetchEvaluation } from '../api';
 import type { EvaluationResponse, MetricScores } from '../types';
 import { Button, Card, Loading, PageHeader, Spinner } from '../components/ui';
@@ -27,7 +27,7 @@ export const EvaluationView: React.FC<EvaluationViewProps> = ({ repoId }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const runBenchmark = async () => {
+  const runBenchmark = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -39,11 +39,11 @@ export const EvaluationView: React.FC<EvaluationViewProps> = ({ repoId }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [repoId]);
 
   useEffect(() => {
     runBenchmark();
-  }, [repoId]);
+  }, [runBenchmark]);
 
   const best = (metric: (typeof METRICS)[number]) => {
     if (!data) return null;

@@ -20,7 +20,7 @@ const MATCH_LABELS: Record<string, { label: string; tone: Tone; hint: string }> 
 
 interface SearchViewProps {
   repoId: string;
-  onNavigateToFile?: (path: string) => void;
+  onNavigateToFile?: (path: string, line?: number) => void;
 }
 
 export const SearchView: React.FC<SearchViewProps> = ({ repoId, onNavigateToFile }) => {
@@ -125,7 +125,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ repoId, onNavigateToFile
               ? 'That looks like a name, so exact matches are ranked first.'
               : 'That reads like a description, so results are matched by meaning as well as keywords.'}{' '}
             <span className="text-subtle">
-              Showing {response.results.length} of {response.total_candidates} candidates.
+              The top {response.results.length} of the {response.total_candidates} candidates it ranked.
             </span>
           </p>
 
@@ -143,7 +143,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ repoId, onNavigateToFile
                   <li key={item.chunk_id || idx} className="space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <button
-                        onClick={() => onNavigateToFile?.(item.file_path)}
+                        onClick={() => onNavigateToFile?.(item.file_path, item.line_start)}
                         className="font-mono text-sm text-ink hover:text-accent hover:underline underline-offset-2 truncate text-left"
                       >
                         {item.file_path}
@@ -153,7 +153,8 @@ export const SearchView: React.FC<SearchViewProps> = ({ repoId, onNavigateToFile
                       </button>
                       <span className="flex items-center gap-2" title={match.hint}>
                         <Tag tone={match.tone}>{match.label}</Tag>
-                        <span className="text-[11px] font-mono text-subtle">score {item.score}</span>
+                        {/* Its place in the ranking: the score is derived from it, so it adds nothing */}
+                        <span className="text-[11px] font-mono text-subtle">#{idx + 1}</span>
                       </span>
                     </div>
                     <CodeBlock className="max-h-64 overflow-y-auto">{item.snippet}</CodeBlock>

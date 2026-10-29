@@ -22,6 +22,16 @@ const BASE_URL = `${API_ORIGIN}/api`;
 /** Human-readable backend host, for display (e.g. "repomind-api.onrender.com"). */
 export const API_HOST = API_ORIGIN ? new URL(API_ORIGIN).host : window.location.host;
 
+/**
+ * The error to throw for a failed response: the server's own `detail` when it sent
+ * one, otherwise the HTTP status code (statusText is empty over HTTP/2).
+ */
+async function failure(res: Response, what: string): Promise<Error> {
+  const body = await res.json().catch(() => ({}));
+  const detail = typeof body.detail === 'string' ? body.detail : null;
+  return new Error(detail ?? `${what} (HTTP ${res.status})`);
+}
+
 export async function fetchHealth(): Promise<{
   status: string;
   version: string;
@@ -29,13 +39,13 @@ export async function fetchHealth(): Promise<{
   local_repos_enabled?: boolean;
 }> {
   const res = await fetch(`${BASE_URL}/health`);
-  if (!res.ok) throw new Error(`Health check failed: ${res.statusText}`);
+  if (!res.ok) throw await failure(res, 'Health check failed');
   return res.json();
 }
 
 export async function fetchRepos(): Promise<RepoListResponse> {
   const res = await fetch(`${BASE_URL}/repos`);
-  if (!res.ok) throw new Error(`Failed to load repositories: ${res.statusText}`);
+  if (!res.ok) throw await failure(res, 'Failed to load repositories');
   return res.json();
 }
 
@@ -45,7 +55,7 @@ export async function selectRepo(repoId: string): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ repo_id: repoId }),
   });
-  if (!res.ok) throw new Error(`Failed to switch repository: ${res.statusText}`);
+  if (!res.ok) throw await failure(res, 'Failed to switch repository');
 }
 
 export async function addLocalRepo(name: string, path: string): Promise<RepoInfo> {
@@ -54,10 +64,7 @@ export async function addLocalRepo(name: string, path: string): Promise<RepoInfo
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, path }),
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || `Failed to add repository: ${res.statusText}`);
-  }
+  if (!res.ok) throw await failure(res, 'Failed to add repository');
   return res.json();
 }
 
@@ -67,10 +74,7 @@ export async function addGitHubRepo(url: string): Promise<RepoInfo> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || `Failed to add repository: ${res.statusText}`);
-  }
+  if (!res.ok) throw await failure(res, 'Failed to add repository');
   return res.json();
 }
 
@@ -84,10 +88,7 @@ export async function browseFolder(initialPath?: string): Promise<BrowseFolderRe
       body: JSON.stringify({ initial_path: initialPath || null }),
       signal: controller.signal,
     });
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-      throw new Error(errorData.detail || `Failed to open folder picker (${res.statusText})`);
-    }
+    if (!res.ok) throw await failure(res, 'Failed to open folder picker');
     return res.json();
   } catch (err: unknown) {
     if (err instanceof Error && err.name === 'AbortError') {
@@ -108,19 +109,19 @@ export async function triggerIndex(repoId: string): Promise<{ files_indexed: num
   const res = await fetch(`${BASE_URL}/repos/index?repo_id=${encodeURIComponent(repoId)}`, {
     method: 'POST',
   });
-  if (!res.ok) throw new Error(`Indexing failed: ${res.statusText}`);
+  if (!res.ok) throw await failure(res, 'Indexing failed');
   return res.json();
 }
 
 export async function fetchFileTree(repoId: string): Promise<FileTreeResponse> {
   const res = await fetch(`${BASE_URL}/files/tree?repo_id=${encodeURIComponent(repoId)}`);
-  if (!res.ok) throw new Error(`Failed to fetch file tree: ${res.statusText}`);
+  if (!res.ok) throw await failure(res, 'Failed to fetch file tree');
   return res.json();
 }
 
 export async function fetchFileContent(path: string, repoId: string): Promise<FileContentResponse> {
   const res = await fetch(`${BASE_URL}/files/content?path=${encodeURIComponent(path)}&repo_id=${encodeURIComponent(repoId)}`);
-  if (!res.ok) throw new Error(`Failed to fetch file content: ${res.statusText}`);
+  if (!res.ok) throw await failure(res, 'Failed to fetch file content');
   return res.json();
 }
 
@@ -129,7 +130,7 @@ export async function fetchSymbols(repoId: string, kind?: 'function' | 'class'):
     ? `${BASE_URL}/symbols?repo_id=${encodeURIComponent(repoId)}&kind=${kind}`
     : `${BASE_URL}/symbols?repo_id=${encodeURIComponent(repoId)}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch symbols: ${res.statusText}`);
+  if (!res.ok) throw await failure(res, 'Failed to fetch symbols');
   return res.json();
 }
 
@@ -139,7 +140,7 @@ export async function executeSearch(query: string, repoId: string, topK: number 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, top_k: topK }),
   });
-  if (!res.ok) throw new Error(`Search failed: ${res.statusText}`);
+  if (!res.ok) throw await failure(res, 'Search failed');
   return res.json();
 }
 
@@ -149,27 +150,24 @@ export async function askQuestion(question: string, repoId: string, useLlm: bool
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question, top_k: 5, use_llm: useLlm }),
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || `Q&A failed: ${res.statusText}`);
-  }
+  if (!res.ok) throw await failure(res, 'Q&A failed');
   return res.json();
 }
 
 export async function fetchGraph(repoId: string): Promise<GraphDataResponse> {
   const res = await fetch(`${BASE_URL}/graph?repo_id=${encodeURIComponent(repoId)}`);
-  if (!res.ok) throw new Error(`Failed to fetch graph: ${res.statusText}`);
+  if (!res.ok) throw await failure(res, 'Failed to fetch graph');
   return res.json();
 }
 
 export async function fetchImpact(target: string, repoId: string): Promise<ImpactResponse> {
   const res = await fetch(`${BASE_URL}/impact/${encodeURIComponent(target)}?repo_id=${encodeURIComponent(repoId)}`);
-  if (!res.ok) throw new Error(`Failed to fetch impact analysis: ${res.statusText}`);
+  if (!res.ok) throw await failure(res, 'Failed to fetch impact analysis');
   return res.json();
 }
 
 export async function fetchEvaluation(repoId: string, maxSamples: number = 10): Promise<EvaluationResponse> {
   const res = await fetch(`${BASE_URL}/evaluate?repo_id=${encodeURIComponent(repoId)}&max_samples=${maxSamples}`);
-  if (!res.ok) throw new Error(`Failed to run evaluation: ${res.statusText}`);
+  if (!res.ok) throw await failure(res, 'Failed to run evaluation');
   return res.json();
 }

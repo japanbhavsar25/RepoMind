@@ -14,11 +14,24 @@ import { API_HOST, addGitHubRepo, addLocalRepo, fetchHealth, fetchRepos, trigger
 import type { RepoInfo } from './types';
 import { Button, Notice, Spinner } from './components/ui';
 
+const DEFAULT_REPO_ID = 'ecommerce_sample';
+const SAVED_REPO_KEY = 'repomind-repo';
+
+/** The repo this browser had open last time (storage can be blocked, so never throw). */
+function readSavedRepo(): string | null {
+  try {
+    return localStorage.getItem(SAVED_REPO_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   const [repos, setRepos] = useState<RepoInfo[]>([]);
   const [activeRepoId, setActiveRepoId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>(undefined);
+  const [selectedFileLine, setSelectedFileLine] = useState<number | undefined>(undefined);
   const [impactTarget, setImpactTarget] = useState<string | undefined>(undefined);
   const [indexing, setIndexing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -44,7 +57,11 @@ export default function App() {
               if (prev && data.repos.some((r: RepoInfo) => r.id === prev)) {
                 return prev;
               }
-              return data.active_repo_id || data.repos[0].id;
+              // This browser's last choice, else the built-in sample. Not the server's
+              // "active" repo: that's shared, so it's whatever the last visitor picked.
+              const saved = readSavedRepo();
+              if (saved && data.repos.some((r: RepoInfo) => r.id === saved)) return saved;
+              return data.repos.find((r: RepoInfo) => r.id === DEFAULT_REPO_ID)?.id ?? data.repos[0].id;
             });
           }
           // Server is up: ask whether local-folder repos are allowed (off on the public demo)
@@ -72,6 +89,15 @@ export default function App() {
     loadRepos();
   }, [loadRepos]);
 
+  useEffect(() => {
+    if (!activeRepoId) return;
+    try {
+      localStorage.setItem(SAVED_REPO_KEY, activeRepoId);
+    } catch {
+      // Storage blocked (private window etc.): the sample is the fallback
+    }
+  }, [activeRepoId]);
+
   const handleSelectRepo = (repoId: string) => {
     setActiveRepoId(repoId);
     setSelectedFilePath(undefined);
@@ -86,14 +112,15 @@ export default function App() {
       await loadRepos();
     } catch (err) {
       console.error('Indexing failed:', err);
-      setError('Re-indexing failed. The server log should say why.');
+      setError(err instanceof Error ? err.message : 'Re-indexing failed. The server log should say why.');
     } finally {
       setIndexing(false);
     }
   };
 
-  const handleNavigateToFile = (path: string) => {
+  const handleNavigateToFile = (path: string, line?: number) => {
     setSelectedFilePath(path);
+    setSelectedFileLine(line);
     setActiveTab('files');
   };
 
@@ -210,7 +237,7 @@ export default function App() {
             )}
 
             {activeTab === 'files' && (
-              <FilesView repoId={activeRepoId} initialPath={selectedFilePath} />
+              <FilesView repoId={activeRepoId} initialPath={selectedFilePath} initialLine={selectedFileLine} />
             )}
 
             {activeTab === 'symbols' && (

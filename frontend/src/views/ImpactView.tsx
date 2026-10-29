@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
 import { fetchGraph, fetchImpact } from '../api';
 import type { ImpactResponse } from '../types';
@@ -7,7 +7,7 @@ import { Button, Chip, Empty, Notice, PageHeader, SectionTitle, Spinner, inputCl
 interface ImpactViewProps {
   repoId: string;
   initialTarget?: string;
-  onNavigateToFile?: (path: string) => void;
+  onNavigateToFile?: (path: string, line?: number) => void;
 }
 
 const FileList: React.FC<{ files: string[]; onOpen?: (path: string) => void }> = ({ files, onOpen }) => (
@@ -32,7 +32,7 @@ export const ImpactView: React.FC<ImpactViewProps> = ({ repoId, initialTarget, o
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
-  const runImpact = async (t: string) => {
+  const runImpact = useCallback(async (t: string) => {
     if (!t.trim()) return;
     setLoading(true);
     setError(null);
@@ -45,7 +45,7 @@ export const ImpactView: React.FC<ImpactViewProps> = ({ repoId, initialTarget, o
     } finally {
       setLoading(false);
     }
-  };
+  }, [repoId]);
 
   // Suggest this repo's most depended-on files; start with the top one if nothing was picked
   useEffect(() => {
@@ -69,7 +69,7 @@ export const ImpactView: React.FC<ImpactViewProps> = ({ repoId, initialTarget, o
     return () => {
       cancelled = true;
     };
-  }, [initialTarget, repoId]);
+  }, [initialTarget, repoId, runImpact]);
 
   const direct = impact?.direct_importers ?? [];
   const indirect = (impact?.transitive_dependents ?? []).filter((f) => !direct.includes(f));
@@ -193,7 +193,7 @@ export const ImpactView: React.FC<ImpactViewProps> = ({ repoId, initialTarget, o
                 {impact.callers.map((c, idx) => (
                   <li key={idx} className="flex items-center justify-between gap-3 py-2 px-1 text-[13px] font-mono">
                     <button
-                      onClick={() => onNavigateToFile?.(c.caller_file)}
+                      onClick={() => onNavigateToFile?.(c.caller_file, c.line_number ?? undefined)}
                       className="min-w-0 truncate text-left hover:text-accent"
                     >
                       <span className="text-muted">{c.caller_file}</span>

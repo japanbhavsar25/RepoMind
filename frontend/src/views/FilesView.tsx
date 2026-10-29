@@ -1,20 +1,45 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronRight, Copy } from 'lucide-react';
 import { fetchFileContent, fetchFileTree } from '../api';
 import type { FileContentResponse, FileNode, FileTreeResponse } from '../types';
-import { Button } from '../components/ui';
+import { Button, Notice } from '../components/ui';
 
 interface FilesViewProps {
   repoId: string;
   initialPath?: string;
+  /** A line to scroll to and highlight, e.g. the start of a citation */
+  initialLine?: number;
 }
 
-export const FilesView: React.FC<FilesViewProps> = ({ repoId, initialPath }) => {
+function findFirstFile(node: FileNode): FileNode | null {
+  if (node.type === 'file') return node;
+  for (const child of node.children ?? []) {
+    const res = findFirstFile(child);
+    if (res) return res;
+  }
+  return null;
+}
+
+function allFiles(node: FileNode): string[] {
+  return node.type === 'file' ? [node.path] : (node.children ?? []).flatMap(allFiles);
+}
+
+/** Match a path as written in an answer (often just `auth.py`) to a real file in the tree. */
+function resolvePath(root: FileNode, wanted: string): string {
+  const files = allFiles(root);
+  if (!wanted || files.includes(wanted)) return wanted;
+  const matches = files.filter((f) => f.endsWith(`/${wanted}`));
+  return matches.length === 1 ? matches[0] : wanted;
+}
+
+export const FilesView: React.FC<FilesViewProps> = ({ repoId, initialPath, initialLine }) => {
   const [tree, setTree] = useState<FileTreeResponse | null>(null);
   const [selectedFile, setSelectedFile] = useState<string>(initialPath || '');
   const [content, setContent] = useState<FileContentResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
+  const highlightRef = useRef<HTMLTableRowElement>(null);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set(['root']));
 
   useEffect(() => {
@@ -24,11 +49,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ repoId, initialPath }) => 
       .then((data) => {
         if (!isMounted) return;
         setTree(data);
-        // Default select first file if none selected
-        if (!selectedFile && data.root.children) {
-          const firstFile = findFirstFile(data.root);
-          if (firstFile) setSelectedFile(firstFile.path);
-        }
+        // Resolve a short path to the real file, or default to the first file
+        setSelectedFile((prev) => (prev ? resolvePath(data.root, prev) : findFirstFile(data.root)?.path ?? ''));
       })
       .catch((err) => console.error('Failed to load file tree:', err))
       .finally(() => {
@@ -41,18 +63,30 @@ export const FilesView: React.FC<FilesViewProps> = ({ repoId, initialPath }) => 
   }, [repoId]);
 
   useEffect(() => {
-    if (!selectedFile) return;
+    // Wait for the tree, so a short path is resolved before it's fetched
+    if (!selectedFile || !tree) return;
     let isMounted = true;
     fetchFileContent(selectedFile, repoId)
       .then((data) => {
-        if (isMounted) setContent(data);
+        if (!isMounted) return;
+        setContent(data);
+        setContentError(null);
       })
-      .catch((err) => console.error('Failed to load file content:', err));
+      .catch((err) => {
+        if (!isMounted) return;
+        setContent(null);
+        setContentError(err instanceof Error ? err.message : `Couldn't open ${selectedFile}.`);
+      });
 
     return () => {
       isMounted = false;
     };
-  }, [selectedFile, repoId]);
+  }, [selectedFile, repoId, tree]);
+
+  // Bring the cited line into view once the file is showing
+  useEffect(() => {
+    highlightRef.current?.scrollIntoView({ block: 'center' });
+  }, [content]);
 
   // Open the folders leading to the selected file so it's visible in the tree
   useEffect(() => {
@@ -65,17 +99,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ repoId, initialPath }) => 
       return next;
     });
   }, [selectedFile]);
-
-  const findFirstFile = (node: FileNode): FileNode | null => {
-    if (node.type === 'file') return node;
-    if (node.children) {
-      for (const child of node.children) {
-        const res = findFirstFile(child);
-        if (res) return res;
-      }
-    }
-    return null;
-  };
 
   const toggleDir = (path: string) => {
     setExpandedDirs((prev) => {
@@ -132,6 +155,9 @@ export const FilesView: React.FC<FilesViewProps> = ({ repoId, initialPath }) => 
   };
 
   const lines = content ? content.content.split('\n') : [];
+  // Highlight only in the file that was opened from a citation or result
+  const openedPath = tree && initialPath ? resolvePath(tree.root, initialPath) : undefined;
+  const highlightLine = content && content.path === openedPath ? initialLine : undefined;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-12 gap-4 md:h-[calc(100vh-200px)] md:min-h-[480px]">
@@ -176,7 +202,11 @@ export const FilesView: React.FC<FilesViewProps> = ({ repoId, initialPath }) => 
             <table className="w-full border-collapse">
               <tbody>
                 {lines.map((line, idx) => (
-                  <tr key={idx} className="hover:bg-accent-soft/40">
+                  <tr
+                    key={idx}
+                    ref={idx + 1 === highlightLine ? highlightRef : undefined}
+                    className={idx + 1 === highlightLine ? 'bg-accent-soft' : 'hover:bg-accent-soft/40'}
+                  >
                     <td className="select-none text-right pr-4 pl-4 text-subtle w-12 align-top tabular-nums">
                       {idx + 1}
                     </td>
@@ -185,6 +215,10 @@ export const FilesView: React.FC<FilesViewProps> = ({ repoId, initialPath }) => 
                 ))}
               </tbody>
             </table>
+          ) : contentError ? (
+            <div className="px-4 font-sans">
+              <Notice tone="error">{contentError}</Notice>
+            </div>
           ) : (
             <div className="h-full flex items-center justify-center text-sm text-muted font-sans">
               Pick a file on the left to read it here.

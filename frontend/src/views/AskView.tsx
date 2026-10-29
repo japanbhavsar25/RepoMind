@@ -41,7 +41,7 @@ function suggestionsFromSymbols(symbols: SymbolInfo[]): string[] {
 const CITATION_RE = /\[([^\]\s]+\.py):(\d+)(?:-(\d+))?\]/g;
 
 /** Render answer text with clickable citations and `inline code`. */
-function renderAnswer(text: string, onOpen?: (path: string) => void): React.ReactNode[] {
+function renderAnswer(text: string, onOpen?: (path: string, line?: number) => void): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let last = 0;
   for (const m of text.matchAll(CITATION_RE)) {
@@ -52,7 +52,7 @@ function renderAnswer(text: string, onOpen?: (path: string) => void): React.Reac
       <button
         key={`c${idx}`}
         type="button"
-        onClick={() => onOpen?.(path)}
+        onClick={() => onOpen?.(path, Number(start))}
         className="font-mono text-[0.8em] px-1 py-px rounded bg-accent-soft text-accent hover:underline underline-offset-2 align-baseline"
         title={`Open ${path}`}
       >
@@ -99,7 +99,7 @@ function verifiedTone(pct: number): Tone {
 
 interface AskViewProps {
   repoId: string;
-  onNavigateToFile?: (path: string) => void;
+  onNavigateToFile?: (path: string, line?: number) => void;
 }
 
 export const AskView: React.FC<AskViewProps> = ({ repoId, onNavigateToFile }) => {
@@ -253,7 +253,7 @@ export const AskView: React.FC<AskViewProps> = ({ repoId, onNavigateToFile }) =>
                         </span>
                       </span>
                       <button
-                        onClick={() => onNavigateToFile?.(cite.file_path)}
+                        onClick={() => onNavigateToFile?.(cite.file_path, cite.line_start)}
                         className="shrink-0 inline-flex items-center gap-0.5 text-xs text-accent hover:underline underline-offset-2"
                       >
                         Open file <ArrowUpRight className="w-3 h-3" />
