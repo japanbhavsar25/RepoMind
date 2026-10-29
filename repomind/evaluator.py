@@ -50,7 +50,12 @@ class RetrievalEvaluator:
             except Exception:
                 pass
 
-        return benchmark[:max_samples]
+        if len(benchmark) > max_samples:
+            # Evenly spaced picks, so a gold set listed by kind (natural questions,
+            # then identifiers) is sampled across all kinds, not just the first
+            step = len(benchmark) / max_samples
+            benchmark = [benchmark[int(i * step)] for i in range(max_samples)]
+        return benchmark
 
     def _match_hit(self, retrieved_files: list[str], expected_files: list[str]) -> int:
         """Return 1-based rank of first matching file, or 0 if no match."""
@@ -89,7 +94,9 @@ class RetrievalEvaluator:
                         cids = [r[0] for r in fts_res]
                         if cids:
                             mres = self.rag.collection.get(ids=cids, include=["metadatas"])
-                            retrieved_files = [m.get("file", "") for m in mres.get("metadatas", [])]
+                            # get() doesn't keep the order asked for: restore the FTS ranking
+                            by_id = dict(zip(mres.get("ids", []), mres.get("metadatas", []), strict=False))
+                            retrieved_files = [by_id[c].get("file", "") for c in cids if c in by_id]
                 if not retrieved_files:
                     # fallback to in-memory bm25
                     all_ids, all_docs, all_metas = self.rag._all_chunks()
@@ -105,7 +112,8 @@ class RetrievalEvaluator:
                     except Exception:
                         retrieved_files = []
             elif mode == "hybrid":
-                _docs, metas, _ids = self.rag.retrieve(q, top_k=5, hybrid=True)
+                # Exactly what Ask and Search run: both searches fused, then reranked
+                _docs, metas, _ids = self.rag.retrieve(q, top_k=5, hybrid=True, rerank=True)
                 retrieved_files = [m.get("file", "") for m in metas]
 
             dt_ms = (time.perf_counter() - t0) * 1000

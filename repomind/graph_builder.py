@@ -62,6 +62,34 @@ def pagerank(graph: nx.DiGraph, alpha: float = 0.85, max_iter: int = 100, tol: f
     return rank
 
 
+
+def best_symbol_match(matches: list[tuple], target: str) -> tuple | None:
+    """Pick the symbol a lookup means from ``db.search`` rows (substring matches).
+
+    An exact qualified name (``Busy.__init__``) wins, then an exact short name
+    (``hash`` over ``hash_token_v2``), then the first substring match.
+    """
+    for row in matches:
+        if row[2] == target:
+            return row
+    for row in matches:
+        if row[1] == target:
+            return row
+    return matches[0] if matches else None
+
+
+def symbol_complexity(func_rows: list[tuple], name: str, qname: str | None) -> int:
+    """Complexity of one symbol from ``get_function_complexities`` rows.
+
+    Matches on the qualified name when there is one, so two classes' ``__init__``
+    methods don't share a score. Classes aren't in the functions table: 1.
+    """
+    for fn_name, fn_qname, cc, _ in func_rows:
+        if (fn_qname == qname) if qname else (fn_name == name):
+            return cc
+    return 1
+
+
 class GraphBuilder:
     """Builds a dependency graph from indexed imports."""
 
@@ -100,7 +128,16 @@ class GraphBuilder:
                     self.warnings.append(f"ambiguous short import {key!r}: {short_map[key]} vs {path} (first wins)")
                 short_map.setdefault(key, path)
 
-        def resolve(module_name: str) -> str | None:
+        def resolve(module_name: str, source_file: str) -> str | None:
+            # A module next to the importer first: running a script puts its own
+            # folder first on sys.path, so 'import utils' in samples/shop/ means
+            # samples/shop/utils.py, not some other utils.py in the project
+            package = _module_name_for_path(source_file).rpartition(".")[0]
+            if source_file.endswith("/__init__.py") or source_file == "__init__.py":
+                package = _module_name_for_path(source_file)
+            sibling = f"{package}.{module_name}" if package else module_name
+            if sibling in exact_map:
+                return exact_map[sibling]
             if module_name in exact_map:
                 return exact_map[module_name]
             if module_name in short_map:
@@ -116,9 +153,9 @@ class GraphBuilder:
             # by the import; fall back to the package itself.
             target = None
             if is_from_import and imported_name:
-                target = resolve(f"{module_name}.{imported_name}")
+                target = resolve(f"{module_name}.{imported_name}", source_file)
             if target is None:
-                target = resolve(module_name)
+                target = resolve(module_name, source_file)
 
             if target and target != source_file:
                 self.graph.add_edge(source_file, target, type="internal")
@@ -207,16 +244,12 @@ class GraphBuilder:
         with RepoDatabase(self.db_path) as db:
             if not matched_file:
                 # Target is likely a function or class symbol
-                matches = db.search(target, limit=10)
-                if matches:
-                    kind, name, qname, start, end, file_path = matches[0]
+                # A wide net, so an exact match isn't cut off by many substring matches
+                best = best_symbol_match(db.search(target, limit=500), target)
+                if best:
+                    kind, name, qname, start, end, file_path = best
                     matched_file = file_path
-                    funcs = db.get_function_complexities(file_path=file_path)
-                    sym_cc = 1
-                    for fn_name, fn_qname, cc, _ in funcs:
-                        if fn_name == name or fn_qname == qname:
-                            sym_cc = cc
-                            break
+                    sym_cc = symbol_complexity(db.get_function_complexities(file_path=file_path), name, qname)
                     symbol_info = {
                         "name": qname or name,
                         "kind": kind,
@@ -300,6 +333,7 @@ class GraphBuilder:
 
         return {
             "target": target,
+            "found": matched_file is not None,
             "target_type": "symbol" if symbol_info else "file",
             "file": matched_file or target,
             "symbol": symbol_info,

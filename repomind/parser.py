@@ -114,6 +114,7 @@ class PythonExtractor:
     """
 
     def __init__(self, source: str) -> None:
+        source = source.removeprefix("\ufeff")  # a BOM (Windows editors) is a SyntaxError for ast
         self.source = source
         self.lines = source.splitlines()
         self.tree = ast.parse(source)
@@ -288,7 +289,7 @@ def extract_file(
     have already read instead of re-reading the file.
     """
     if source is None:
-        source = file_path.read_text(encoding="utf-8", errors="replace")
+        source = file_path.read_text(encoding="utf-8-sig", errors="replace")  # -sig drops a BOM
     extractor = PythonExtractor(source)
     package = _package_of(rel_path) if rel_path else None
     posix_path = rel_path or file_path.as_posix()

@@ -10,7 +10,7 @@ from chromadb.config import Settings
 from repomind.chunking import build_symbol_chunks
 from repomind.database import RepoDatabase
 from repomind.embedder import CodeEmbedder
-from repomind.llm import OllamaClient, OllamaError
+from repomind.llm import OllamaClient, OllamaError, default_llm_client
 
 COLLECTION_NAME = "code_chunks"
 
@@ -24,7 +24,11 @@ class RepoRAG:
         self.db_path = db_path
         self.config = config or load_config()
         self.embedder = CodeEmbedder(model_name=self.config.embed_model)
-        self.llm = OllamaClient(model=model or self.config.ollama_model, url=self.config.ollama_url)
+        # An explicit --model is an Ollama model; otherwise Groq if a key is set
+        if model:
+            self.llm = OllamaClient(model=model, url=self.config.ollama_url)
+        else:
+            self.llm = default_llm_client(self.config.ollama_model, self.config.ollama_url)
 
         # ChromaDB lives next to the SQLite DB so the two stores travel together
         chroma_path = db_path.parent / ".repomind_chroma"
@@ -344,8 +348,8 @@ ANSWER (with citations):"""
         """
         if not self.llm.is_alive():
             raise OllamaError(
-                "Ollama is not running. Start it with 'ollama serve' "
-                "or keep the Ollama app open."
+                "Ollama is not running. Start it with 'ollama serve', keep the Ollama "
+                "app open, or set GROQ_API_KEY to use Groq instead."
             )
 
         # 1-2. Retrieve (vector or hybrid+rerank)

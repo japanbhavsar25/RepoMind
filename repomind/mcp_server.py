@@ -15,8 +15,15 @@ from pathlib import Path
 
 from repomind.database import RepoDatabase
 from repomind.git_analyzer import GitAnalyzer
-from repomind.graph_builder import GraphBuilder
+from repomind.graph_builder import GraphBuilder, best_symbol_match, symbol_complexity
 from repomind.rag import RepoRAG
+
+INVALID_PARAMS = -32602  # JSON-RPC error code for bad tool names or arguments
+_JSON_TYPES = {"string": str, "integer": int}
+
+
+class ToolArgumentError(ValueError):
+    """A tools/call named an unknown tool or sent arguments that don't fit its schema."""
 
 
 class RepoMindMCPServer:
@@ -93,6 +100,30 @@ class RepoMindMCPServer:
             },
         ]
 
+    def validate_arguments(self, name: str, arguments: object) -> dict:
+        """Check a call against the tool's ``inputSchema``; raise ToolArgumentError if it doesn't fit."""
+        tool = next((t for t in self.get_tools_list() if t["name"] == name), None)
+        if tool is None:
+            raise ToolArgumentError(f"Unknown tool: {name}")
+        if arguments is None:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            raise ToolArgumentError("'arguments' must be an object")
+        schema = tool["inputSchema"]
+        for key in schema.get("required", []):
+            if not arguments.get(key):
+                raise ToolArgumentError(f"Missing required argument '{key}'")
+        for key, spec in schema.get("properties", {}).items():
+            if key not in arguments:
+                continue
+            value = arguments[key]
+            # bool is a subclass of int in Python, but true isn't a number in JSON
+            if not isinstance(value, _JSON_TYPES[spec["type"]]) or isinstance(value, bool):
+                raise ToolArgumentError(f"Argument '{key}' must be a {spec['type']}")
+        if "top_k" in arguments and not 1 <= arguments["top_k"] <= 50:
+            raise ToolArgumentError("Argument 'top_k' must be between 1 and 50")
+        return arguments
+
     def handle_tool_call(self, name: str, arguments: dict) -> str:
         """Dispatch and execute an MCP tool call."""
         if not self.db_path.exists():
@@ -116,18 +147,16 @@ class RepoMindMCPServer:
         elif name == "repomind_symbol_lookup":
             symbol = arguments.get("symbol_name", "")
             with RepoDatabase(self.db_path) as db:
-                matches = db.search(symbol, limit=5)
+                matches = db.search(symbol, limit=500)
                 if not matches:
                     return f"Symbol '{symbol}' not found in database."
+                # The exact match first, then the closest substring matches
+                best = best_symbol_match(matches, symbol)
+                matches = [best] + [m for m in matches if m is not best][:4]
                 output_blocks = []
                 for match in matches:
                     kind, sname, qname, start, end, fpath = match
-                    funcs = db.get_function_complexities(file_path=fpath)
-                    cc = 1
-                    for fn_name, fn_qname, comp, _ in funcs:
-                        if fn_name == sname or fn_qname == qname:
-                            cc = comp
-                            break
+                    cc = symbol_complexity(db.get_function_complexities(file_path=fpath), sname, qname)
                     callers = db.get_symbol_calls(callee_name=sname)
                     caller_lines = [
                         f"  * {c[1]} ({c[0]}:{c[3]})"
@@ -221,9 +250,11 @@ class RepoMindMCPServer:
                 except Exception:
                     continue
 
+            if not isinstance(data, dict):
+                continue
             req_id = data.get("id")
             method = data.get("method")
-            params = data.get("params", {})
+            params = data.get("params") or {}
 
             # Notification or response
             if req_id is None:
@@ -246,16 +277,7 @@ class RepoMindMCPServer:
                     "result": {"tools": self.get_tools_list()},
                 }
             elif method == "tools/call":
-                tool_name = params.get("name", "")
-                tool_args = params.get("arguments", {})
-                output_text = self.handle_tool_call(tool_name, tool_args)
-                res = {
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "result": {
-                        "content": [{"type": "text", "text": output_text}],
-                    },
-                }
+                res = self._call_tool(req_id, params)
             elif method == "ping":
                 res = {"jsonrpc": "2.0", "id": req_id, "result": {}}
             else:
@@ -268,3 +290,21 @@ class RepoMindMCPServer:
             out_bytes = (json.dumps(res) + "\n").encode("utf-8")
             stdout.buffer.write(out_bytes)
             stdout.buffer.flush()
+
+    def _call_tool(self, req_id: object, params: dict) -> dict:
+        """Run one tools/call. Bad input is a JSON-RPC error and a failing tool is an
+        error result; neither stops the server, so one bad request can't end the session."""
+        name = params.get("name", "")
+        try:
+            arguments = self.validate_arguments(name, params.get("arguments"))
+        except ToolArgumentError as exc:
+            return {"jsonrpc": "2.0", "id": req_id, "error": {"code": INVALID_PARAMS, "message": str(exc)}}
+        try:
+            text, is_error = self.handle_tool_call(name, arguments), False
+        except Exception as exc:
+            text, is_error = f"Error running {name}: {exc}", True
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {"content": [{"type": "text", "text": text}], "isError": is_error},
+        }

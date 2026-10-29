@@ -1,6 +1,9 @@
-"""Ollama LLM client for local inference."""
+"""LLM clients: local Ollama, or the hosted Groq API."""
 
 from __future__ import annotations
+
+import os
+from pathlib import Path
 
 import requests
 
@@ -164,3 +167,23 @@ class GroqClient:
             "latency_ms": round((time.perf_counter() - start) * 1000),
         }
         return data["choices"][0]["message"]["content"].strip()
+
+
+def env_setting(name: str, env_file: Path = Path(".env")) -> str:
+    """Read a setting from the environment, else from a ``NAME=value`` line in ``.env``."""
+    if os.environ.get(name):
+        return os.environ[name]
+    if env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+            key, sep, value = line.partition("=")
+            if sep and key.strip() == name:
+                return value.strip().strip("\"'")
+    return ""
+
+
+def default_llm_client(ollama_model: str, ollama_url: str) -> GroqClient | OllamaClient:
+    """Groq when GROQ_API_KEY is set (same rule as the web server), else local Ollama."""
+    api_key = env_setting("GROQ_API_KEY")
+    if api_key:
+        return GroqClient(api_key=api_key, model=env_setting("GROQ_MODEL") or "openai/gpt-oss-120b")
+    return OllamaClient(model=ollama_model, url=ollama_url)

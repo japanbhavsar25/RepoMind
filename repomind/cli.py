@@ -14,7 +14,7 @@ from repomind import __version__
 from repomind.database import RepoDatabase
 from repomind.git_analyzer import GitAnalyzer
 from repomind.graph_builder import GraphBuilder
-from repomind.llm import OllamaError
+from repomind.llm import GroqError, OllamaError
 from repomind.parser import extract_file, hash_bytes
 from repomind.rag import RepoRAG
 from repomind.report import ReportGenerator
@@ -101,7 +101,7 @@ def index(
                     progress.advance(task)
                     continue
 
-                text = raw.decode("utf-8", errors="replace")
+                text = raw.decode("utf-8-sig", errors="replace")  # -sig drops a BOM, which ast rejects
                 line_count = len(text.splitlines())
                 last_modified = py_file.stat().st_mtime
 
@@ -202,7 +202,8 @@ def ask(
         console.print("[yellow]No embeddings found. Run 'repomind embed' first.[/yellow]")
         raise typer.Exit(1)
 
-    if stream:
+    # Groq answers arrive in one piece, so --stream only applies to Ollama
+    if stream and hasattr(rag.llm, "generate_stream"):
         from rich.live import Live
         from rich.markdown import Markdown
 
@@ -215,7 +216,7 @@ def ask(
                     full += tok
                     live.update(Markdown(full + "▌"))
             console.print(Panel(Markdown(full or "_Empty response_"), title=f"Q: {question}", border_style="green"))
-        except OllamaError as e:
+        except (OllamaError, GroqError) as e:
             console.print(Panel(str(e), title=f"Q: {question}", border_style="red"))
             raise typer.Exit(1) from e
         return
@@ -223,7 +224,7 @@ def ask(
     with console.status("[cyan]Thinking...[/cyan]", spinner="dots"):
         try:
             answer = rag.ask(question, top_k=top_k, hybrid=hybrid, rerank=rerank)
-        except OllamaError as e:
+        except (OllamaError, GroqError) as e:
             console.print(Panel(str(e), title=f"Q: {question}", border_style="red"))
             raise typer.Exit(1) from e
 
@@ -390,6 +391,9 @@ def impact(
     builder = GraphBuilder(db, path)
     builder.build()
     result = builder.compute_blast_radius(target)
+    if not result["found"] and not json_output:
+        console.print(f"[yellow]No file or symbol called '{target}' in this repository.[/yellow]")
+        raise typer.Exit(1)
 
     if json_output:
         import json
