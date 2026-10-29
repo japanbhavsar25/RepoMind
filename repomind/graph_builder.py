@@ -34,6 +34,34 @@ def _module_name_for_path(rel_path: str) -> str:
     return ".".join([*parts[:-1], PurePosixPath(parts[-1]).stem])
 
 
+def pagerank(graph: nx.DiGraph, alpha: float = 0.85, max_iter: int = 100, tol: float = 1.0e-6) -> dict:
+    """PageRank by power iteration, matching ``nx.pagerank``'s defaults.
+
+    Pure Python because ``nx.pagerank`` needs SciPy, which the slim (no-PyTorch)
+    deployment doesn't install. Import graphs are small, so this is fast enough.
+    Dangling nodes (no outgoing edges) spread their score evenly over all nodes.
+    """
+    nodes = list(graph)
+    n = len(nodes)
+    if n == 0:
+        return {}
+    out_degree = {u: graph.out_degree(u) for u in nodes}
+    rank = dict.fromkeys(nodes, 1.0 / n)
+    for _ in range(max_iter):
+        dangling = alpha * sum(rank[u] for u in nodes if out_degree[u] == 0) / n
+        new = dict.fromkeys(nodes, (1.0 - alpha) / n + dangling)
+        for u in nodes:
+            if out_degree[u]:
+                share = alpha * rank[u] / out_degree[u]
+                for v in graph.successors(u):
+                    new[v] += share
+        err = sum(abs(new[u] - rank[u]) for u in nodes)
+        rank = new
+        if err < n * tol:
+            break
+    return rank
+
+
 class GraphBuilder:
     """Builds a dependency graph from indexed imports."""
 
@@ -104,10 +132,7 @@ class GraphBuilder:
     def pagerank(self) -> dict[str, float]:
         """PageRank scores, computed once and cached."""
         if self._pagerank is None:
-            try:
-                self._pagerank = nx.pagerank(self.graph)
-            except Exception:
-                self._pagerank = {}
+            self._pagerank = pagerank(self.graph)
         return self._pagerank
 
     def analyze(self) -> dict:
