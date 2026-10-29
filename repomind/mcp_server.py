@@ -17,6 +17,7 @@ from repomind.database import RepoDatabase
 from repomind.git_analyzer import GitAnalyzer
 from repomind.graph_builder import GraphBuilder, best_symbol_match, symbol_complexity
 from repomind.rag import RepoRAG
+from repomind.report import HOTSPOTS_SCORED, architecture_health_score
 
 INVALID_PARAMS = -32602  # JSON-RPC error code for bad tool names or arguments
 _JSON_TYPES = {"string": str, "integer": int}
@@ -197,24 +198,19 @@ class RepoMindMCPServer:
 
             hotspots = GitAnalyzer.compute_composite_hotspots(
                 git_stats, complexities, graph_res.get("pagerank", {})
-            )[:10]
+            )[:HOTSPOTS_SCORED]
 
-            # Compute Health Score
-            score = 100
-            score -= min(40, len(graph_res.get("cycles", [])) * 15)
-            score -= min(20, len(graph_res.get("orphans", [])) * 3)
-            crit_hot = sum(1 for h in hotspots if h.get("risk_level") == "CRITICAL")
-            score -= min(20, crit_hot * 5)
-            silos = sum(1 for h in hotspots if h.get("bus_factor_risk"))
-            score -= min(15, silos * 3)
-            score = max(10, min(100, score))
+            # Same formula and inputs as the HTML report, so the two always agree
+            score = architecture_health_score(
+                len(graph_res.get("cycles", [])), len(graph_res.get("orphans", [])), hotspots, len(ghosts)
+            )
 
             summary = {
                 "health_score": score,
                 "stats": stats,
                 "cycles": graph_res.get("cycles", []),
                 "orphans": graph_res.get("orphans", []),
-                "top_hotspots": hotspots,
+                "top_hotspots": hotspots[:10],
                 "ghost_files_count": len(ghosts),
             }
             return json.dumps(summary, indent=2)

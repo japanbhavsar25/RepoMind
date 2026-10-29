@@ -1,4 +1,4 @@
-"""Central config: defaults + optional repomind.yaml + env overrides."""
+"""Central config for the CLI: defaults, overridden by an optional repomind.yaml."""
 
 from __future__ import annotations
 

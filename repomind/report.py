@@ -312,6 +312,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 """
 
 
+HOTSPOTS_SCORED = 25  # how many top hotspots count towards the health score
+
+
+def architecture_health_score(cycles: int, orphans: int, hotspots: list[dict], ghost_files: int) -> int:
+    """Architecture health from 10 to 100, the one formula for the report and MCP.
+
+    Starts at 100 and loses points, each capped: import cycles (15 each, up to 40),
+    orphan files (3, up to 20), CRITICAL hotspots (5, up to 20), single-author
+    hotspots (3, up to 15) and files untouched for 180+ days (1, up to 10).
+    """
+    score = 100
+    score -= min(40, cycles * 15)
+    score -= min(20, orphans * 3)
+    score -= min(20, sum(1 for h in hotspots if h.get("risk_level") == "CRITICAL") * 5)
+    score -= min(15, sum(1 for h in hotspots if h.get("bus_factor_risk")) * 3)
+    score -= min(10, ghost_files)
+    return max(10, min(100, score))
+
+
 class ReportGenerator:
     """Generates static HTML reports."""
 
@@ -354,21 +373,11 @@ class ReportGenerator:
         pr_data = graph_analysis.get("pagerank", {})
         composite_hotspots = GitAnalyzer.compute_composite_hotspots(
             git_stats, complexities_by_file, pr_data
-        )[:25]
+        )[:HOTSPOTS_SCORED]
 
-        # Calculate Architecture Health Score (0-100)
-        health_score = 100
         cycles_count = len(graph_analysis.get("cycles", []))
         orphans_count = len(graph_analysis.get("orphans", []))
-        health_score -= min(40, cycles_count * 15)
-        health_score -= min(20, orphans_count * 3)
-        critical_hotspots = sum(1 for h in composite_hotspots if h.get("risk_level") == "CRITICAL")
-        health_score -= min(20, critical_hotspots * 5)
-        silos_count = sum(1 for h in composite_hotspots if h.get("bus_factor_risk"))
-        health_score -= min(15, silos_count * 3)
-        ghost_count = len(ghost_files)
-        health_score -= min(10, ghost_count * 1)
-        health_score = max(10, min(100, health_score))
+        health_score = architecture_health_score(cycles_count, orphans_count, composite_hotspots, len(ghost_files))
 
         if health_score >= 90:
             health_rating = "A (Excellent)"

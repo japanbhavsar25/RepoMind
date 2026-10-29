@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import ast
-import dis
 import hashlib
-import inspect
 from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
 from repomind.database import CallRecord, ClassRecord, FunctionRecord, ImportRecord
 
@@ -92,8 +91,13 @@ def _qualified_name(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str:
 
 
 def _get_source_lines(source: str, node: ast.AST) -> tuple[int, int]:
-    """Get 1-based start and end line numbers."""
-    return node.lineno, getattr(node, "end_lineno", node.lineno)
+    """Get 1-based start and end line numbers, decorators included.
+
+    ``node.lineno`` is the ``def``/``class`` line, so ``@router.get(...)`` above
+    a handler would fall outside the range a citation can point at.
+    """
+    start = min([node.lineno] + [d.lineno for d in getattr(node, "decorator_list", [])])
+    return start, getattr(node, "end_lineno", node.lineno)
 
 
 def _package_of(rel_path: str) -> str:
@@ -245,35 +249,13 @@ def _resolve_from_module(
     return ".".join(parts)
 
 
-class ParseResult(tuple):
-    """Backwards-compatible tuple for (functions, classes, imports, symbol_calls).
-    Supports unpacking 3 items (funcs, classes, imports) or 4 items (funcs, classes, imports, calls).
-    """
+class ParseResult(NamedTuple):
+    """Everything extracted from one file. Unpacks as four values, or use the names."""
 
-    def __new__(cls, functions, classes, imports, calls):
-        return super().__new__(cls, (functions, classes, imports, calls))
-
-    def __init__(self, functions, classes, imports, calls):
-        self.functions = functions
-        self.classes = classes
-        self.imports = imports
-        self.calls = calls
-
-    def __iter__(self):
-        try:
-            frame = inspect.currentframe().f_back
-            if frame:
-                code = frame.f_code
-                lasti = frame.f_lasti
-                if 0 <= lasti < len(code.co_code):
-                    opcode = code.co_code[lasti]
-                    if dis.opname[opcode] == "UNPACK_SEQUENCE":
-                        count = code.co_code[lasti + 1]
-                        if count == 3:
-                            return iter((self.functions, self.classes, self.imports))
-        except Exception:
-            pass
-        return super().__iter__()
+    functions: list[FunctionRecord]
+    classes: list[ClassRecord]
+    imports: list[ImportRecord]
+    calls: list[CallRecord]
 
 
 def extract_file(

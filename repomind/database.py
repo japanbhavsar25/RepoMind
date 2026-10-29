@@ -69,6 +69,11 @@ CREATE INDEX IF NOT EXISTS idx_symbol_calls_callee ON symbol_calls(callee_name);
 """
 
 
+def _like_escape(text: str) -> str:
+    """Make ``%`` and ``_`` match literally in a LIKE pattern (with ``ESCAPE '\\'``)."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @dataclass(frozen=True)
 class FunctionRecord:
     file_id: int
@@ -325,11 +330,11 @@ class RepoDatabase:
         query = "SELECT caller_file, caller_symbol, callee_name, line_number FROM symbol_calls WHERE 1=1"
         params: list = []
         if callee_name:
-            query += " AND (callee_name = ? OR callee_name LIKE ?)"
-            params.extend([callee_name, f"%.{callee_name}"])
+            query += " AND (callee_name = ? OR callee_name LIKE ? ESCAPE '\\')"
+            params.extend([callee_name, f"%.{_like_escape(callee_name)}"])
         if caller_symbol:
-            query += " AND (caller_symbol = ? OR caller_symbol LIKE ?)"
-            params.extend([caller_symbol, f"%.{caller_symbol}"])
+            query += " AND (caller_symbol = ? OR caller_symbol LIKE ? ESCAPE '\\')"
+            params.extend([caller_symbol, f"%.{_like_escape(caller_symbol)}"])
         if file_path:
             query += " AND caller_file = ?"
             params.append(file_path)
@@ -448,20 +453,20 @@ class RepoDatabase:
 
     def search(self, term: str, limit: int = 20) -> list[tuple]:
         """Find functions/classes whose name contains ``term``."""
-        pattern = f"%{term}%"
+        pattern = f"%{_like_escape(term)}%"
         return self._connection().execute(
             """
             SELECT 'function' as type, name, qualified_name, line_start, line_end,
                    f.path as file_path
             FROM functions
             JOIN files f ON functions.file_id = f.id
-            WHERE name LIKE ? OR qualified_name LIKE ?
+            WHERE name LIKE ? ESCAPE '\\' OR qualified_name LIKE ? ESCAPE '\\'
             UNION ALL
             SELECT 'class' as type, name, qualified_name, line_start, line_end,
                    f.path as file_path
             FROM classes
             JOIN files f ON classes.file_id = f.id
-            WHERE name LIKE ? OR qualified_name LIKE ?
+            WHERE name LIKE ? ESCAPE '\\' OR qualified_name LIKE ? ESCAPE '\\'
             LIMIT ?
             """,
             (pattern, pattern, pattern, pattern, limit),

@@ -35,7 +35,7 @@ class Calculator:
         path = Path(tmp) / "calc.py"
         path.write_text(source)
 
-        funcs, classes, imports = extract_file(path, file_id=1)
+        funcs, classes, imports, _ = extract_file(path, file_id=1)
 
         assert len(classes) == 1
         assert classes[0].name == "Calculator"
@@ -121,7 +121,7 @@ class Outer:
         path = Path(tmp) / "nested.py"
         path.write_text(source)
 
-        funcs, classes, _ = extract_file(path, file_id=1)
+        funcs, classes, _, _ = extract_file(path, file_id=1)
 
     qnames = {f.qualified_name for f in funcs}
     assert "Outer.Inner.method" in qnames
@@ -142,7 +142,7 @@ import os
         path = Path(tmp) / "cli.py"
         path.write_text(source)
 
-        _, _, imports = extract_file(path, file_id=1, rel_path="pkg/cli.py")
+        _, _, imports, _ = extract_file(path, file_id=1, rel_path="pkg/cli.py")
 
     by_name = {i.imported_name: i.module_name for i in imports}
     # 'from . import database': the module is the current package, the
@@ -161,7 +161,7 @@ def test_init_file_resolves_to_package():
         path = Path(tmp) / "__init__.py"
         path.write_text(source)
 
-        _, _, imports = extract_file(path, file_id=1, rel_path="pkg/__init__.py")
+        _, _, imports, _ = extract_file(path, file_id=1, rel_path="pkg/__init__.py")
 
     assert imports[0].module_name == "pkg"
     assert imports[0].imported_name == "utils"
@@ -173,7 +173,7 @@ def test_extract_file_accepts_preloaded_source():
         path = Path(tmp) / "m.py"
         path.write_text("def a():\n    pass\n")
 
-        funcs, _, _ = extract_file(path, file_id=1, source="def b():\n    pass\n")
+        funcs, _, _, _ = extract_file(path, file_id=1, source="def b():\n    pass\n")
 
     assert [f.name for f in funcs] == ["b"]
 

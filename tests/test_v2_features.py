@@ -128,19 +128,14 @@ def caller_function(data):
     assert all(c.caller_symbol == "caller_function" for c in calls)
 
 
-def test_extract_file_backward_compatibility(tmp_path):
+def test_extract_file_result_unpacks_and_has_names(tmp_path):
     py_file = tmp_path / "test_mod.py"
     py_file.write_text("def hello(): return 1\nclass Greeter: pass\nimport sys\n")
-    # Test 3-variable unpack (old v1 caller)
-    f, c, i = extract_file(py_file, file_id=1)
-    assert len(f) == 1
-    assert len(c) == 1
-    assert len(i) == 1
-
-    # Test 4-variable unpack (new v2 caller)
     f4, c4, i4, calls4 = extract_file(py_file, file_id=1)
-    assert len(f4) == 1
+    assert (len(f4), len(c4), len(i4)) == (1, 1, 1)
     assert isinstance(calls4, list)
+    res = extract_file(py_file, file_id=1)
+    assert res.functions == f4 and res.calls == calls4
 
 
 def test_blast_radius_and_transitive_dependents(tmp_path):
