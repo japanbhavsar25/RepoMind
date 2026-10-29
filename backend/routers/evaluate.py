@@ -1,8 +1,9 @@
 """Retrieval evaluation router."""
 
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query
 
+from backend.errors import internal_error
 from backend.schemas import EvaluationResponse
 from backend.services.eval_service import eval_service
 
@@ -16,4 +17,4 @@ def get_evaluation(repo_id: str | None = Query(None), max_samples: int = Query(1
         res = eval_service.run_eval(repo_id=repo_id, max_samples=max_samples)
         return EvaluationResponse(**res)
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+        raise internal_error("The benchmark", exc) from exc

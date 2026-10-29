@@ -1,8 +1,9 @@
 """Search API endpoint."""
 
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query
 
+from backend.errors import internal_error
 from backend.schemas import SearchRequest, SearchResponse
 from backend.services.search_service import search_service
 
@@ -22,4 +23,4 @@ def search_code(req: SearchRequest, repo_id: str | None = Query(None)) -> Search
         )
         return SearchResponse(**res)
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+        raise internal_error("Search", exc) from exc

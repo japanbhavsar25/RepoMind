@@ -62,7 +62,9 @@ class SearchService:
                 if filter_path and filter_path.lower() not in f_path.lower():
                     continue
 
-                score = round(1.0 / (1.0 + (rank - 1) * 0.15), 4)
+                # Retrieval returns an order, not relevance numbers, so the score is
+                # the reciprocal rank: 1.0 for the top result, 0.5 for the second...
+                score = round(1.0 / rank, 4)
                 results.append({
                     "chunk_id": str(chunk_id),
                     "file_path": f_path,
@@ -78,13 +80,20 @@ class SearchService:
                 if db.has_fts5:
                     try:
                         fts_hits = db.search_fts(query, limit=top_k * 2)
+                        # Chunk ids look like "func_12" or "func_12#1": the symbol's table and row
+                        symbols = {(s[0], s[1]): s for s in db.get_all_symbols()}
                         for cid, score in fts_hits:
+                            kind, _, row = cid.split("#")[0].partition("_")
+                            sym = symbols.get((kind, int(row))) if row.isdigit() else None
+                            if sym is None:
+                                continue
+                            _kind, _id, _name, _qname, _doc, src, start, end, path = sym
                             results.append({
                                 "chunk_id": cid,
-                                "file_path": cid.split(":")[0] if ":" in cid else "",
-                                "snippet": f"Matched FTS chunk {cid}",
-                                "line_start": 1,
-                                "line_end": 1,
+                                "file_path": path,
+                                "snippet": src[:400] + ("..." if len(src) > 400 else ""),
+                                "line_start": start,
+                                "line_end": end,
                                 "score": round(score, 4),
                                 "match_type": "fts5_sparse",
                             })

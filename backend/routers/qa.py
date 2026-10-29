@@ -3,6 +3,7 @@
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from backend.errors import internal_error
 from backend.schemas import AskRequest, AskResponse
 from backend.services.qa_service import LLMUnavailableError, qa_service
 
@@ -23,4 +24,4 @@ def ask_codebase(req: AskRequest, repo_id: str | None = Query(None)) -> AskRespo
     except LLMUnavailableError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+        raise internal_error("Answering", exc) from exc

@@ -10,6 +10,7 @@ import re
 import shutil
 import stat
 import subprocess
+import threading
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -24,6 +25,10 @@ from repomind.utils import find_python_files
 logger = logging.getLogger("repomind.repo_manager")
 
 
+class IndexingInProgressError(RuntimeError):
+    """This repo is already being indexed by another request."""
+
+
 class CloneFailedError(ValueError):
     """git couldn't clone the URL (typo, private or missing repo): nothing was downloaded."""
 
@@ -34,7 +39,7 @@ class ManagedRepo:
     name: str
     root_path: Path
     db_path: Path
-    chroma_dir: Path
+    chroma_dir: Path  # where RepoRAG keeps the vectors: always next to db_path
     is_sample: bool = False
 
     def is_indexed(self) -> bool:
@@ -65,6 +70,8 @@ class RepoManager:
     def __init__(self):
         self._active_repo_id = settings.default_repo_id
         self._registry: dict[str, ManagedRepo] = {}
+        self._index_locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
         self._initialize_defaults()
 
     def _initialize_defaults(self) -> None:
@@ -74,7 +81,7 @@ class RepoManager:
         sample_db_dir = settings.data_dir / "samples" / "ecommerce"
         sample_db_dir.mkdir(parents=True, exist_ok=True)
         sample_db = sample_db_dir / "ecommerce.db"
-        sample_chroma = sample_db_dir / "chroma"
+        sample_chroma = sample_db_dir / ".repomind_chroma"
 
         self._registry["ecommerce_sample"] = ManagedRepo(
             id="ecommerce_sample",
@@ -322,8 +329,23 @@ class RepoManager:
         return list(self._registry.values())
 
     def index_repo(self, repo_id: str | None = None) -> dict:
-        """Run complete AST parsing and database indexing for a repository."""
+        """Run complete AST parsing and database indexing for a repository.
+
+        One index run per repo at a time: two at once would wipe each other's
+        vector collection halfway through. A second request gets
+        IndexingInProgressError instead of waiting.
+        """
         repo = self.get_repo(repo_id)
+        with self._locks_guard:
+            lock = self._index_locks.setdefault(repo.id, threading.Lock())
+        if not lock.acquire(blocking=False):
+            raise IndexingInProgressError(f"'{repo.name}' is already being indexed. Try again in a moment.")
+        try:
+            return self._index(repo)
+        finally:
+            lock.release()
+
+    def _index(self, repo: ManagedRepo) -> dict:
         start_time = time.time()
 
         if not repo.root_path.exists():

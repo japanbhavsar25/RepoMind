@@ -56,10 +56,8 @@ def validate_git_url(url: str) -> str:
     if parsed.scheme.lower() != "https":
         raise SecurityError("Only HTTPS Git URLs are permitted")
 
+    # The allow-list is the SSRF guard: localhost and private addresses can't be on it
     hostname = (parsed.hostname or "").lower()
-    if hostname in {"localhost", "127.0.0.1", "0.0.0.0"} or hostname.startswith("192.168.") or hostname.startswith("10."):
-        raise SecurityError("Local and private network URLs are prohibited")
-
     if hostname not in ALLOWED_GIT_HOSTS:
         raise SecurityError(f"Host '{hostname}' is not in the permitted Git hosts list ({', '.join(sorted(ALLOWED_GIT_HOSTS))})")
 

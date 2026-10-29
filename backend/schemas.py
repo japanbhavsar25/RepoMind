@@ -68,11 +68,6 @@ class BrowseFolderResponse(BaseModel):
     error: str | None = None
 
 
-class ImportGitRepoRequest(BaseModel):
-    url: str
-    name: str | None = None
-
-
 class IndexRepoResponse(BaseModel):
     status: str
     repo_id: str
@@ -199,7 +194,7 @@ class GraphDataResponse(BaseModel):
 class ImpactResponse(BaseModel):
     target: str
     found: bool
-    kind: str  # "module", "symbol", "unknown"
+    kind: str  # "file", "symbol" or "unknown"
     direct_importers: list[str]
     transitive_dependents: list[str]
     pagerank: float = 0.0

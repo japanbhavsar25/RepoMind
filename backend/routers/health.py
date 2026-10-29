@@ -24,6 +24,6 @@ def get_health() -> HealthResponse:
         status="healthy",
         version=settings.version,
         fts5_enabled=fts5_ok,
-        data_dir=str(settings.data_dir),
+        data_dir="" if settings.public_mode else str(settings.data_dir),  # no server paths on the demo
         local_repos_enabled=not settings.public_mode,
     )

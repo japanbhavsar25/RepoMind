@@ -8,6 +8,7 @@ from collections import defaultdict, deque
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from backend.config import settings
+from backend.errors import internal_error
 from backend.schemas import (
     AddGitHubRepoRequest,
     AddLocalRepoRequest,
@@ -21,7 +22,12 @@ from backend.schemas import (
 )
 from backend.security import SecurityError
 from backend.services.folder_picker import pick_folder_native
-from backend.services.repo_manager import CloneFailedError, repo_manager
+from backend.services.repo_manager import (
+    CloneFailedError,
+    IndexingInProgressError,
+    ManagedRepo,
+    repo_manager,
+)
 
 logger = logging.getLogger("repomind.repos")
 router = APIRouter(prefix="/repos", tags=["Repositories"])
@@ -78,6 +84,11 @@ def _record_github_add(request: Request) -> None:
         _recent_adds(_ALL_CLIENTS, now).append(now)
 
 
+def _shown_path(repo: ManagedRepo) -> str:
+    """The repo's folder for display: hidden on the public demo, where it's a server path."""
+    return "" if settings.public_mode else str(repo.root_path)
+
+
 def _reject_in_public_mode() -> None:
     if settings.public_mode:
         raise HTTPException(
@@ -111,7 +122,7 @@ def list_repositories() -> RepoListResponse:
             RepoInfo(
                 id=r.id,
                 name=r.name,
-                path=str(r.root_path),
+                path=_shown_path(r),
                 is_sample=r.is_sample,
                 is_indexed=r.is_indexed(),
                 stats=RepoStats(**s),
@@ -141,7 +152,7 @@ def add_local_repository(req: AddLocalRepoRequest, request: Request) -> RepoInfo
         return RepoInfo(
             id=repo.id,
             name=repo.name,
-            path=str(repo.root_path),
+            path=_shown_path(repo),
             is_sample=False,
             is_indexed=repo.is_indexed(),
             stats=RepoStats(**s),
@@ -156,10 +167,7 @@ def add_local_repository(req: AddLocalRepoRequest, request: Request) -> RepoInfo
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=msg) from e
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg) from e
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to register repository: {e}",
-        ) from e
+        raise internal_error("Registering the folder", e) from e
 
 
 @router.post("/github", response_model=RepoInfo, status_code=status.HTTP_201_CREATED)
@@ -179,11 +187,7 @@ def add_github_repository(req: AddGitHubRepoRequest, request: Request, response:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(e)) from e
     except Exception as e:
         _record_github_add(request)
-        logger.error("GitHub repository ingestion failed: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to add repository: {e}",
-        ) from e
+        raise internal_error("Adding the repository", e) from e
 
     if created:
         _record_github_add(request)
@@ -192,7 +196,7 @@ def add_github_repository(req: AddGitHubRepoRequest, request: Request, response:
     return RepoInfo(
         id=repo.id,
         name=repo.name,
-        path=str(repo.root_path),
+        path=_shown_path(repo),
         is_sample=False,
         is_indexed=repo.is_indexed(),
         stats=RepoStats(**repo.get_stats()),
@@ -261,5 +265,13 @@ def trigger_indexing(request: Request, repo_id: str | None = Query(None)) -> Ind
     try:
         res = repo_manager.index_repo(repo_id)
         return IndexRepoResponse(**res)
+    except IndexingInProgressError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except FileNotFoundError as e:
+        # The folder was moved or deleted after it was added: the user can fix that
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The repository folder does not exist any more. Was it moved or deleted?",
+        ) from e
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+        raise internal_error("Indexing", e) from e

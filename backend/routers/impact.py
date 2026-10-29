@@ -1,8 +1,9 @@
 """Change-impact and downstream blast radius router."""
 
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query
 
+from backend.errors import internal_error
 from backend.schemas import ImpactResponse
 from backend.services.graph_service import graph_service
 
@@ -16,4 +17,4 @@ def analyze_impact(target: str, repo_id: str | None = Query(None)) -> ImpactResp
         res = graph_service.compute_impact(target=target, repo_id=repo_id)
         return ImpactResponse(**res)
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+        raise internal_error("Impact analysis", exc) from exc

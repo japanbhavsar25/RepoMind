@@ -121,12 +121,19 @@ class QAService:
         llm_active = use_llm and llm_available(llm)
 
         if not llm_active:
+            if not use_llm:
+                why = "You turned off written answers, so here is the code that matches your question."
+            else:
+                why = (
+                    "No language model is set up: set GROQ_API_KEY in .env, or run a local Ollama server at "
+                    f"`{settings.ollama_url}`. Meanwhile, here is the code that matches your question."
+                )
+            # Only **bold** and `code`: the web app renders those, not # headings
             summary_lines = [
-                f"### Relevant Evidence Retrieved ({len(docs)} code chunks)",
-                "AI answers are off: set GROQ_API_KEY in .env, or run a local Ollama server at "
-                f"`{settings.ollama_url}`.",
+                f"**Relevant code ({len(docs)} chunks)**",
+                why,
                 "",
-                "**Top Matching Sources:**",
+                "**Top matching sources:**",
             ]
             for c in citations[:5]:
                 summary_lines.append(f"- `[{c['file_path']}:{c['line_start']}-{c['line_end']}]`")
