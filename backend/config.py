@@ -37,9 +37,10 @@ class Settings(BaseSettings):
     warmup_models: bool = True
 
     # Public deployment mode (e.g. Hugging Face Spaces): disables registering
-    # server-side folders and rate-limits GitHub cloning per client IP.
+    # server-side folders and rate-limits GitHub cloning per client IP and overall.
     public_mode: bool = False
     github_adds_per_hour: int = 5
+    github_adds_per_hour_total: int = 20
 
     # Security limits
     max_file_size_bytes: int = 2 * 1024 * 1024  # 2MB max per single file

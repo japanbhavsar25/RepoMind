@@ -24,6 +24,10 @@ from repomind.utils import find_python_files
 logger = logging.getLogger("repomind.repo_manager")
 
 
+class CloneFailedError(ValueError):
+    """git couldn't clone the URL (typo, private or missing repo): nothing was downloaded."""
+
+
 @dataclass
 class ManagedRepo:
     id: str
@@ -292,7 +296,7 @@ class RepoManager:
             ) from e
         if result.returncode != 0:
             logger.warning("git clone failed for %s: %s", url, result.stderr.strip())
-            raise ValueError("Could not clone the repository. Check the link is correct and the repo is public.")
+            raise CloneFailedError("Could not clone the repository. Check the link is correct and the repo is public.")
 
     @property
     def active_repo_id(self) -> str:
@@ -303,6 +307,9 @@ class RepoManager:
             raise ValueError(f"Unknown repository ID: '{repo_id}'")
         self._active_repo_id = repo_id
         return self._registry[repo_id]
+
+    def has_repo(self, repo_id: str) -> bool:
+        return repo_id in self._registry
 
     def get_repo(self, repo_id: str | None = None) -> ManagedRepo:
         target_id = repo_id or self._active_repo_id
@@ -345,7 +352,7 @@ class RepoManager:
                 current_paths.add(rel_path)
                 raw = py_file.read_bytes()
                 content_hash = hash_bytes(raw)
-                text = raw.decode("utf-8", errors="replace")
+                text = raw.decode("utf-8-sig", errors="replace")  # -sig drops a BOM, which ast rejects
                 line_count = len(text.splitlines())
                 last_mod = py_file.stat().st_mtime
 
@@ -360,7 +367,8 @@ class RepoManager:
                         db.insert_imports(res.imports)
                     if res.calls:
                         db.insert_symbol_calls(res.calls)
-                except SyntaxError:
+                except SyntaxError as exc:
+                    logger.warning("Skipped symbols in %s: not valid Python (%s)", rel_path, exc)
                     continue
 
             db.commit()

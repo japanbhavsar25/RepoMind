@@ -21,7 +21,7 @@ from backend.schemas import (
 )
 from backend.security import SecurityError
 from backend.services.folder_picker import pick_folder_native
-from backend.services.repo_manager import repo_manager
+from backend.services.repo_manager import CloneFailedError, repo_manager
 
 logger = logging.getLogger("repomind.repos")
 router = APIRouter(prefix="/repos", tags=["Repositories"])
@@ -30,30 +30,52 @@ _github_adds: dict[str, deque[float]] = defaultdict(deque)
 _github_adds_lock = threading.Lock()
 
 
+_ALL_CLIENTS = "*"  # key for the server-wide count (never a real IP)
+
+
 def _client_ip(request: Request) -> str:
-    # Behind a proxy (e.g. Hugging Face Spaces) the real client is the first X-Forwarded-For hop
+    # Behind a proxy (e.g. Render) the real client is the LAST X-Forwarded-For hop:
+    # the proxy appends it, while earlier entries are whatever the client sent
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return forwarded.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 
+def _recent_adds(key: str, now: float) -> deque[float]:
+    """Clone times for this key within the last hour (call with the lock held)."""
+    recent = _github_adds[key]
+    while recent and now - recent[0] > 3600:
+        recent.popleft()
+    return recent
+
+
 def _enforce_github_rate_limit(request: Request) -> None:
-    """In public mode, allow each client IP a limited number of clones per hour."""
+    """In public mode, cap clones per client IP and for the whole server, per hour."""
     if not settings.public_mode:
         return
-    ip = _client_ip(request)
     now = time.time()
     with _github_adds_lock:
-        recent = _github_adds[ip]
-        while recent and now - recent[0] > 3600:
-            recent.popleft()
-        if len(recent) >= settings.github_adds_per_hour:
+        if len(_recent_adds(_client_ip(request), now)) >= settings.github_adds_per_hour:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"Limit reached: {settings.github_adds_per_hour} repositories per hour. Try again later.",
             )
-        recent.append(now)
+        if len(_recent_adds(_ALL_CLIENTS, now)) >= settings.github_adds_per_hour_total:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="The demo has cloned as many repositories as it can this hour. Try again later.",
+            )
+
+
+def _record_github_add(request: Request) -> None:
+    """Charge one clone to the client and to the server-wide count."""
+    if not settings.public_mode:
+        return
+    now = time.time()
+    with _github_adds_lock:
+        _recent_adds(_client_ip(request), now).append(now)
+        _recent_adds(_ALL_CLIENTS, now).append(now)
 
 
 def _reject_in_public_mode() -> None:
@@ -146,18 +168,26 @@ def add_github_repository(req: AddGitHubRepoRequest, request: Request, response:
     _enforce_github_rate_limit(request)
     try:
         repo, created = repo_manager.add_github_repo(req.url)
-    except (SecurityError, ValueError) as e:
+    except (SecurityError, CloneFailedError) as e:
+        # A bad link or a failed clone downloaded nothing, so it doesn't use up the quota
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except ValueError as e:
+        _record_github_add(request)  # cloned, then rejected (no Python files, too many files)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except TimeoutError as e:
+        _record_github_add(request)
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(e)) from e
     except Exception as e:
+        _record_github_add(request)
         logger.error("GitHub repository ingestion failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to add repository: {e}",
         ) from e
 
-    if not created:
+    if created:
+        _record_github_add(request)
+    else:
         response.status_code = status.HTTP_200_OK
     return RepoInfo(
         id=repo.id,

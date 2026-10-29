@@ -4,7 +4,7 @@ import logging
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -78,16 +78,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register routers under /api
+
+def require_known_repo(repo_id: str | None = Query(None)) -> None:
+    """404 for a repo_id the server doesn't know, instead of quietly using the default repo."""
+    if repo_id and not repo_manager.has_repo(repo_id):
+        raise HTTPException(status_code=404, detail=f"Unknown repository: '{repo_id}'")
+
+
+# Register routers under /api. Every router that reads ?repo_id= checks it first.
 app.include_router(health.router, prefix=settings.api_prefix)
-app.include_router(repos.router, prefix=settings.api_prefix)
-app.include_router(files.router, prefix=settings.api_prefix)
-app.include_router(symbols.router, prefix=settings.api_prefix)
-app.include_router(search.router, prefix=settings.api_prefix)
-app.include_router(qa.router, prefix=settings.api_prefix)
-app.include_router(graph.router, prefix=settings.api_prefix)
-app.include_router(impact.router, prefix=settings.api_prefix)
-app.include_router(evaluate.router, prefix=settings.api_prefix)
+for module in (repos, files, symbols, search, qa, graph, impact, evaluate):
+    app.include_router(module.router, prefix=settings.api_prefix, dependencies=[Depends(require_known_repo)])
 
 
 FRONTEND_DIST = settings.base_dir / "frontend" / "dist"
