@@ -151,6 +151,7 @@ export default function App() {
         onTriggerIndex={handleTriggerIndex}
         onOpenAddRepo={() => setIsAddRepoOpen(true)}
         indexing={indexing}
+        canReindex={localReposEnabled}
       />
 
       <AddRepoModal

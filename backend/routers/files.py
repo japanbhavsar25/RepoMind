@@ -12,11 +12,17 @@ from repomind.utils import should_skip_dir
 router = APIRouter(prefix="/files", tags=["Files"])
 
 
+def _is_viewable(rel_path: str) -> bool:
+    """Only Python source outside hidden folders: never .env, keys, databases or dot-files."""
+    parts = rel_path.replace("\\", "/").split("/")
+    return rel_path.endswith(".py") and not any(p.startswith(".") for p in parts)
+
+
 def _build_tree(root_dir: Path) -> tuple[FileNode, int]:
-    """Recursively build a directory tree structure."""
+    """Recursively build a directory tree of the repo's viewable (Python) files."""
     total_files = 0
 
-    def traverse(current_path: Path) -> FileNode:
+    def traverse(current_path: Path) -> FileNode | None:
         nonlocal total_files
         try:
             rel = current_path.relative_to(root_dir).as_posix()
@@ -24,6 +30,8 @@ def _build_tree(root_dir: Path) -> tuple[FileNode, int]:
             rel = current_path.name
 
         if current_path.is_file():
+            if not _is_viewable(rel):
+                return None
             total_files += 1
             return FileNode(
                 name=current_path.name,
@@ -42,7 +50,10 @@ def _build_tree(root_dir: Path) -> tuple[FileNode, int]:
             for entry in entries:
                 if entry.is_dir() and should_skip_dir(entry):
                     continue
-                children.append(traverse(entry))
+                child = traverse(entry)
+                # Leave out files we won't serve and folders with nothing to show
+                if child is not None and (child.type == "file" or child.children):
+                    children.append(child)
         except PermissionError:
             pass
 
@@ -85,6 +96,12 @@ def get_file_content(path: str = Query(...), repo_id: str | None = Query(None)) 
         safe_file_path = resolve_safe_path(repo.root_path, path)
     except SecurityError as err:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(err)) from err
+
+    if not _is_viewable(path):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only Python source files can be viewed",
+        )
 
     if not safe_file_path.exists() or not safe_file_path.is_file():
         raise HTTPException(

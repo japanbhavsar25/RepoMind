@@ -46,7 +46,8 @@ class Settings(BaseSettings):
     max_repo_files: int = 2000
     git_clone_timeout_seconds: int = 60
 
-    # CORS
+    # CORS: explicit origins only. A "*" here would let any website a developer
+    # visits read files from their local server. Override with CORS_ORIGINS='[...]'.
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -55,7 +56,7 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:8000",
         "http://127.0.0.1:8000",
-        "*",
+        "https://repo-mind-steel.vercel.app",
     ]
 
     class Config:

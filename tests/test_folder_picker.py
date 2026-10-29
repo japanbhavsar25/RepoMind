@@ -101,7 +101,7 @@ def test_browse_folder_cross_origin_rejected():
         headers={"Origin": "https://malicious-external-site.com"},
     )
     assert res.status_code == 403
-    assert "cross-origin browse request rejected" in res.json()["detail"].lower()
+    assert "cross-origin request rejected" in res.json()["detail"].lower()
 
 
 def test_browse_folder_allowed_origin():

@@ -10,6 +10,8 @@ interface HeaderProps {
   onTriggerIndex: () => void;
   onOpenAddRepo: () => void;
   indexing: boolean;
+  /** False on the public demo, where the server refuses re-indexing */
+  canReindex: boolean;
 }
 
 type Theme = 'light' | 'dark';
@@ -62,6 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
   onTriggerIndex,
   onOpenAddRepo,
   indexing,
+  canReindex,
 }) => {
   return (
     <header className="bg-paper px-4 sm:px-6 pt-5 pb-3">
@@ -95,16 +98,18 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline">Add repo</span>
           </Button>
 
-          <Button
-            variant="quiet"
-            onClick={onTriggerIndex}
-            disabled={indexing}
-            title="Parse the selected repository again"
-            aria-label={indexing ? 'Re-indexing' : 'Re-index repository'}
-          >
-            <RefreshCw className={`w-4 h-4 ${indexing ? 'animate-spin' : ''}`} />
-            <span className="hidden lg:inline">{indexing ? 'Re-indexing…' : 'Re-index'}</span>
-          </Button>
+          {canReindex && (
+            <Button
+              variant="quiet"
+              onClick={onTriggerIndex}
+              disabled={indexing}
+              title="Parse the selected repository again"
+              aria-label={indexing ? 'Re-indexing' : 'Re-index repository'}
+            >
+              <RefreshCw className={`w-4 h-4 ${indexing ? 'animate-spin' : ''}`} />
+              <span className="hidden lg:inline">{indexing ? 'Re-indexing…' : 'Re-index'}</span>
+            </Button>
+          )}
 
           <ThemeToggle />
         </div>

@@ -64,6 +64,21 @@ def _reject_in_public_mode() -> None:
         )
 
 
+def _reject_foreign_origin(request: Request) -> None:
+    """Refuse browser requests from other websites (CSRF on a developer's local server)."""
+    origin = request.headers.get("origin")
+    if not origin:
+        return  # not a cross-site browser request (curl, the CLI, same-origin GETs)
+    allowed = origin in settings.cors_origins or any(
+        origin.startswith(prefix) for prefix in ("http://localhost:", "http://127.0.0.1:")
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cross-origin request rejected.",
+        )
+
+
 @router.get("", response_model=RepoListResponse)
 def list_repositories() -> RepoListResponse:
     """Return all available repositories and the currently active repo ID."""
@@ -94,9 +109,10 @@ def select_repository(req: SelectRepoRequest):
 
 
 @router.post("/local", response_model=RepoInfo, status_code=status.HTTP_201_CREATED)
-def add_local_repository(req: AddLocalRepoRequest) -> RepoInfo:
+def add_local_repository(req: AddLocalRepoRequest, request: Request) -> RepoInfo:
     """Register a new local repository by folder path."""
     _reject_in_public_mode()
+    _reject_foreign_origin(request)
     try:
         repo = repo_manager.add_local_repo(req.name, req.path)
         s = repo.get_stats()
@@ -174,17 +190,7 @@ async def browse_folder(
         )
 
     # 2. Check Origin header if present (CORS/CSRF protection)
-    origin = request.headers.get("origin")
-    if origin:
-        allowed = set(settings.cors_origins)
-        is_allowed = origin in allowed or any(
-            origin.startswith(prefix) for prefix in ("http://localhost:", "http://127.0.0.1:")
-        )
-        if not is_allowed:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Cross-origin browse request rejected.",
-            )
+    _reject_foreign_origin(request)
 
     # 3. Validate initial_path parameter if provided
     if req.initial_path and "\0" in req.initial_path:
@@ -211,8 +217,17 @@ async def browse_folder(
 
 
 @router.post("/index", response_model=IndexRepoResponse)
-def trigger_indexing(repo_id: str | None = Query(None)) -> IndexRepoResponse:
+def trigger_indexing(request: Request, repo_id: str | None = Query(None)) -> IndexRepoResponse:
     """Index or re-index the specified repository (defaults to active)."""
+    # A body-less POST needs no CORS preflight, so check the Origin here
+    _reject_foreign_origin(request)
+    # On the public demo, only a newly added repo may be indexed (once). Re-indexing
+    # wipes and rebuilds the index, which would break the demo for every visitor.
+    if settings.public_mode and repo_manager.get_repo(repo_id).is_indexed():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Re-indexing is disabled on the public demo.",
+        )
     try:
         res = repo_manager.index_repo(repo_id)
         return IndexRepoResponse(**res)
