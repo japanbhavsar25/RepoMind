@@ -38,40 +38,44 @@ cd frontend && npm run build          # type-check (tsc -b) + production bundle
 | `test_public_mode.py` | 6 | Public mode: blocked folder access, per-IP rate limit, model caching |
 | `test_embed_backend.py` | 4 | ONNX vs sentence-transformers selection, reranker fallback without PyTorch |
 
-CI (`.github/workflows/ci.yml`) runs the suite on Ubuntu and Windows with Python 3.11 and 3.12.
+CI (`.github/workflows/ci.yml`) runs the suite on Ubuntu and Windows with Python 3.11 and 3.12. A second workflow (`.github/workflows/eval.yml`) runs the retrieval benchmark below as a quality gate.
 
 ---
 
 ## 3. Retrieval benchmark
 
 ### 3.1 Method
-- **Dataset:** [`eval/gold.json`](../eval/gold.json), 20 hand-written natural-language questions about **RepoMind's own code**, each labelled with the file(s) that answer it.
-- **Corpus:** the RepoMind repository (64 Python files, 500 chunks).
+- **Dataset:** [`eval/gold.json`](../eval/gold.json), 35 hand-written queries about **RepoMind's own code**, each labelled with the file(s) that answer it and a `kind`: 20 `natural` questions and 15 `identifier` lookups (e.g. `verify_citations`, `RepoMindMCPServer.handle_tool_call`).
+- **Corpus:** the RepoMind repository (502 chunks).
 - **Metrics** (k = 5): **Hit@k**, the share of questions where an expected file is in the top k; and **MRR@k**, the mean of 1/rank of the first correct file (0 if not in the top k).
 - **Run it:**
   ```bash
   repomind index . && repomind embed
-  python eval/run.py          # writes eval/results.md
+  python eval/run.py                      # writes eval/results.md
+  python eval/run.py --reranker lexical --check eval/thresholds.json   # CI gate
   ```
 
 ### 3.2 Results (October 2026, ONNX MiniLM embeddings)
 
-| Retrieval setup | Hit@5 | MRR@5 |
-|---|---|---|
-| Vector only | 0.85 | 0.70 |
-| Hybrid (vector + BM25, RRF k=60) | 0.80 | 0.56 |
-| Hybrid + cross-encoder rerank | 0.85 | 0.67 |
-| **Hybrid + lexical rerank (live demo setup)** | **0.85** | **0.70** (Hit@1 0.60, ~0.2 s/query on a laptop CPU) |
+| Retrieval setup | Natural (n=20) Hit@5 / MRR@5 | Identifier (n=15) Hit@5 / MRR@5 | All (n=35) Hit@5 / MRR@5 |
+|---|---|---|---|
+| Vector only | 0.85 / 0.70 | 1.00 / 0.89 | 0.91 / 0.78 |
+| Hybrid (vector + BM25, RRF k=60) | 0.80 / 0.56 | 1.00 / 0.90 | 0.89 / 0.70 |
+| Hybrid + cross-encoder rerank | 0.85 / 0.67 | 1.00 / 1.00 | 0.91 / 0.81 |
+| **Hybrid + lexical rerank (live demo setup)** | **0.85 / 0.70** | **1.00 / 1.00** | **0.91 / 0.83** (Hit@1 0.77) |
 
 Per-question results are in [`eval/results.md`](../eval/results.md).
 
 ### 3.3 Interpretation
 - On natural-language questions, **BM25 fusion lowered MRR**: test files repeat the vocabulary of the code they test, and keyword search ranks them highly. Reranking recovered the loss.
-- The gold set has **no identifier-style queries** (e.g. `verify_citations`), which is where keyword search should help most. That's the next addition.
-- 20 questions on one repo is a **regression check**, not a general benchmark.
+- On identifier queries, even vector search finds every target in the top 5, so BM25 fusion adds little (MRR 0.89 → 0.90). The reranker puts all 15 at rank 1 by rewarding exact symbol matches near the top of a chunk.
+- 35 queries on one repo is a **regression check**, not a general benchmark.
 
-### 3.4 Known issue
-The web UI's **Evaluation** tab runs this RepoMind-specific gold set against whichever repo is selected, so its scores are only meaningful when "RepoMind (Self)" is selected.
+### 3.4 CI gate
+`.github/workflows/eval.yml` indexes the repo with the slim stack (ONNX embeddings, lexical rerank, same as the Render deployment), runs the eval and fails if the live-demo setup drops below [`eval/thresholds.json`](../eval/thresholds.json) on any slice. The floors sit about one question below the measured scores so ONNX float noise across machines doesn't make it flaky. The results are attached to each run and written to the job summary.
+
+### 3.5 The Benchmark tab
+The web UI's **Benchmark** tab uses this hand-written gold set only when "RepoMind (Self)" is selected. Any other repo is scored on questions sampled from its own documented symbols ("where is X implemented?"), since the gold set's expected files exist only in RepoMind.
 
 ---
 

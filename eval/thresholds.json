@@ -1,0 +1,9 @@
+{
+  "_note": "Minimums for the live-demo setup (hybrid + lexical rerank, ONNX embeddings), checked by CI. Measured Oct 2026 on this repo: all hit@5 0.914 MRR 0.826; natural 0.850 / 0.696; identifier 1.000 / 1.000. Floors sit about one question below that so ONNX float noise across machines doesn't flake.",
+  "config": "hybrid+rerank",
+  "min": {
+    "all": {"hit@5": 0.85, "mrr": 0.75},
+    "natural": {"hit@5": 0.80, "mrr": 0.62},
+    "identifier": {"hit@5": 0.93, "mrr": 0.85}
+  }
+}

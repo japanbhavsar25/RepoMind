@@ -10,6 +10,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![Tests](https://img.shields.io/badge/tests-128%20passing-success)](tests/)
+[![Retrieval eval](https://github.com/japanbhavsar25/RepoMind/actions/workflows/eval.yml/badge.svg)](.github/workflows/eval.yml)
 
 ---
 
@@ -62,16 +63,18 @@ The same code also runs fully offline on a laptop, with a local [Ollama](https:/
 All numbers below were measured on this codebase in October 2026. The retrieval script is [`eval/run.py`](eval/run.py) and its output is in [`eval/results.md`](eval/results.md).
 
 ### Retrieval quality
-Benchmark: 20 hand-labelled questions about RepoMind's own code (64 files, 500 chunks). A hit means the expected file appears in the top-k results.
+Benchmark: 35 hand-labelled queries about RepoMind's own code (502 chunks): 20 natural-language questions ("how are orphan files detected?") and 15 identifier lookups (`verify_citations`, `GroqClient.generate`). A hit means the expected file appears in the top-k results.
 
-| Retrieval setup | Hit@5 | MRR@5 |
-|---|---|---|
-| Vector only | 0.85 | 0.70 |
-| Hybrid (vector + BM25, RRF) | 0.80 | 0.56 |
-| Hybrid + cross-encoder rerank | 0.85 | 0.67 |
-| **Hybrid + lexical rerank (live demo setup)** | **0.85** | **0.70** (Hit@1 0.60) |
+| Retrieval setup | Natural (n=20) Hit@5 / MRR@5 | Identifier (n=15) Hit@5 / MRR@5 | All (n=35) Hit@5 / MRR@5 |
+|---|---|---|---|
+| Vector only | 0.85 / 0.70 | 1.00 / 0.89 | 0.91 / 0.78 |
+| Hybrid (vector + BM25, RRF k=60) | 0.80 / 0.56 | 1.00 / 0.90 | 0.89 / 0.70 |
+| Hybrid + cross-encoder rerank | 0.85 / 0.67 | 1.00 / 1.00 | 0.91 / 0.81 |
+| **Hybrid + lexical rerank (live demo setup)** | **0.85 / 0.70** | **1.00 / 1.00** | **0.91 / 0.83** (Hit@1 0.77) |
 
-**What this shows:** on these natural-language questions, BM25 fusion on its own *hurt* ranking, because test files share a lot of vocabulary with the code they test. Reranking recovered the loss. This gold set has no identifier-style queries (like `verify_citations`), which is where keyword search should help most. Adding them is on the list.
+**What this shows:** on natural-language questions, BM25 fusion on its own *hurt* ranking, because test files share a lot of vocabulary with the code they test. Reranking recovered the loss. On identifier queries, every setup finds the right file in the top 5, so BM25 fusion barely moves MRR there (0.89 → 0.90). The reranker is what helps: it puts all 15 at rank 1, because it rewards exact symbol matches in a chunk's first lines.
+
+**CI-gated.** [`.github/workflows/eval.yml`](.github/workflows/eval.yml) re-indexes the repo on every push and PR, runs this eval on the live-demo setup, and fails the build if any slice drops below [`eval/thresholds.json`](eval/thresholds.json). It needs no LLM calls, so it's free.
 
 ### Deployment and cost
 | Metric | Result |

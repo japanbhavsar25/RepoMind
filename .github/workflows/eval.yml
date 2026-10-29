@@ -1,0 +1,53 @@
+# .github/workflows/eval.yml
+# Retrieval quality gate: index this repo, run the gold-set eval, and fail the
+# build if the live-demo retrieval setup drops below eval/thresholds.json.
+# Retrieval only (no LLM calls), so it costs nothing and needs no secrets.
+name: Retrieval eval
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    env:
+      # Same slim stack as the Render deployment: ONNX MiniLM, lexical rerank
+      REPOMIND_EMBED_BACKEND: onnx
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install (slim, no PyTorch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Cache ONNX embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/chroma
+          key: chroma-onnx-minilm-v1
+
+      - name: Index and embed this repo
+        run: |
+          repomind index .
+          repomind embed
+
+      - name: Run eval gate
+        run: python eval/run.py --reranker lexical --check eval/thresholds.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: eval/results.md
